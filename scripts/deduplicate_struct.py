@@ -110,11 +110,36 @@ def collect_local_deps(source_code, item_node, top_level_items, visited=None):
     return result
 
 
+def find_use_stmts_for_names(source_code, names):
+    """
+    Find use_declaration texts in source_code that import any of the given names.
+    Returns dict: name -> use statement text.
+    """
+    if not names:
+        return {}
+
+    tree = parser.parse(bytes(source_code, "utf8"))
+    root = tree.root_node
+    result = {}
+
+    def walk(node):
+        if node.type == "use_declaration":
+            text = source_code[node.start_byte:node.end_byte]
+            for name in names:
+                if name not in result and re.search(r'\b' + re.escape(name) + r'\b', text):
+                    result[name] = text
+        for child in node.children:
+            walk(child)
+
+    walk(root)
+    return result
+
+
 # -------------------------------
 # Use statement handling
 # -------------------------------
-def ensure_use_statement(source_code, item_name, module_path):
-    use_stmt = f"use {module_path}::{item_name};"
+def ensure_use_statement(source_code, item_name, use_prefix, module_path):
+    use_stmt = f"use {use_prefix}::{module_path}::{item_name};"
 
     if use_stmt in source_code:
         return source_code
@@ -134,10 +159,17 @@ def ensure_use_statement(source_code, item_name, module_path):
 # Module path resolution
 # -------------------------------
 def module_path_from_file(file_path, base_dir):
-    rel = Path(file_path).relative_to(base_dir)
-    parts = list(rel.with_suffix("").parts)
+    parts = list(Path(file_path).with_suffix("").parts)
 
-    if parts[-1] == "mod":
+    # Prefer path relative to the last 'src' directory (Rust crate convention)
+    try:
+        src_idx = len(parts) - 1 - list(reversed(parts)).index("src")
+        parts = parts[src_idx + 1:]
+    except ValueError:
+        # Fallback: relative to base_dir
+        parts = list(Path(file_path).relative_to(base_dir).with_suffix("").parts)
+
+    if parts and parts[-1] == "mod":
         parts = parts[:-1]
 
     return "::".join(parts)
@@ -146,19 +178,20 @@ def module_path_from_file(file_path, base_dir):
 # -------------------------------
 # File processing
 # -------------------------------
-def process_file(file_path, item_name, dest_module_path):
+def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_root):
     with open(file_path, "r", encoding="utf8") as f:
         source = f.read()
 
     nodes = find_item_nodes(source, item_name)
     if not nodes:
-        return None, source
+        return None, [], source
 
     main_node = nodes[0]
     top_level = find_all_top_level_items(source)
 
-    # Collect all local deps recursively
-    dep_nodes = collect_local_deps(source, main_node, top_level)
+    # Collect all local deps recursively; exclude item_name to avoid self-reference
+    # (the name field is a type_identifier and would otherwise add the item as its own dep)
+    dep_nodes = collect_local_deps(source, main_node, top_level, visited={item_name})
 
     # Extract spans for main item and all deps
     main_text, main_start, main_end = extract_item_with_attributes(source, main_node)
@@ -173,59 +206,214 @@ def process_file(file_path, item_name, dest_module_path):
     for start, end in sorted(all_spans, key=lambda x: x[0], reverse=True):
         stripped = stripped[:start] + stripped[end:]
 
-    # Deps still referenced in stripped source stay in the source file
-    deps_to_keep = {name for name in dep_nodes if is_name_referenced(stripped, name)}
+    # Deps still referenced in stripped source need use statements (not local copies).
+    # Keeping local copies alongside the dest version causes type conflicts.
+    deps_still_referenced = {name for name in dep_nodes if is_name_referenced(stripped, name)}
 
-    # Remove main item and unreferenced deps from source
-    spans_to_remove = [(main_start, main_end)]
-    for name, (_, start, end) in dep_spans.items():
-        if name not in deps_to_keep:
-            spans_to_remove.append((start, end))
-
+    # Remove ALL candidates from source (main + all deps)
+    spans_to_remove = [(main_start, main_end)] + [(s, e) for _, s, e in dep_spans.values()]
     new_source = source
     for start, end in sorted(spans_to_remove, key=lambda x: x[0], reverse=True):
         new_source = new_source[:start] + new_source[end:]
 
-    # Add use statement for main item (it's been removed from this file)
-    new_source = ensure_use_statement(new_source, item_name, dest_module_path)
+    # Use `crate::` if source and dest are in the same crate, else the external crate name.
+    source_crate_root = find_crate_root(file_path)
+    use_prefix = "crate" if source_crate_root == dest_crate_root else crate_name
+
+    # Add use statement for main item
+    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
+    # Add use statements for deps still referenced in this file
+    for name in deps_still_referenced:
+        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
 
     # Collect everything that goes to destination: main + all deps (kept or not)
     extracted = {item_name: main_text}
     for name, (text, _, _) in dep_spans.items():
         extracted[name] = text
 
-    if deps_to_keep:
-        print(f"  Kept in source (still referenced): {', '.join(sorted(deps_to_keep))}")
+    # Find use statements in source for external type refs (not locally defined).
+    # Only carry a use statement to the destination if the imported name is actually
+    # referenced in one of the items we're writing there.
+    all_moved_nodes = [main_node] + list(dep_nodes.values())
+    all_refs = set()
+    for node in all_moved_nodes:
+        all_refs |= find_type_refs_in_node(source, node)
 
-    return extracted, new_source
+    local_names = set(dep_nodes.keys()) | {item_name}
+    external_refs = all_refs - local_names
+
+    own_crate_pattern = re.compile(r'^\s*use\s+' + re.escape(crate_name) + r'::')
+    dest_text = " ".join(extracted.values())
+    use_stmts = [
+        stmt
+        for name, stmt in find_use_stmts_for_names(source, external_refs).items()
+        if is_name_referenced(dest_text, name)
+        and not own_crate_pattern.match(stmt)
+    ]
+
+    if deps_still_referenced:
+        print(f"  use-imported in source (still referenced): {', '.join(sorted(deps_still_referenced))}")
+    if use_stmts:
+        print(f"  Carrying use statements: {len(use_stmts)}")
+
+    return extracted, use_stmts, new_source
+
+
+# -------------------------------
+# Post-write: clean up redundant use statements in dest
+# -------------------------------
+def cleanup_redundant_use_stmts(dest_file):
+    """
+    Remove use statements in dest_file that import names which are now
+    locally defined in the file (e.g. stale imports from a previous run).
+    """
+    source = dest_file.read_text(encoding="utf8")
+    locally_defined = set(find_all_top_level_items(source).keys())
+    if not locally_defined:
+        return
+
+    lines = source.splitlines()
+    new_lines = []
+    removed = []
+    for line in lines:
+        if line.strip().startswith("use "):
+            imported = find_use_stmts_for_names(line, locally_defined)
+            if imported:
+                removed.append(line.strip())
+                continue
+        new_lines.append(line)
+
+    if removed:
+        dest_file.write_text("\n".join(new_lines) + "\n", encoding="utf8")
+        for stmt in removed:
+            print(f"  removed redundant: {stmt}")
+
+
+# -------------------------------
+# Post-write: resolve missing imports in dest
+# -------------------------------
+def find_crate_root(file_path):
+    """Walk up from file_path to find the nearest directory containing Cargo.toml."""
+    path = Path(file_path).resolve().parent
+    while path != path.parent:
+        if (path / "Cargo.toml").exists():
+            return path
+        path = path.parent
+    return None
+
+
+def resolve_missing_imports(dest_file, search_dirs, base_dir):
+    """
+    After items are written to dest_file, find type refs that have no local
+    definition and no existing use statement, search the project for their
+    definitions, and insert the required `use crate::...` statements.
+    """
+    source = dest_file.read_text(encoding="utf8")
+
+    # Collect every type_identifier used in the file, excluding those inside
+    # a scoped path (e.g. the `c_int` in `::core::ffi::c_int` is already qualified)
+    tree = parser.parse(bytes(source, "utf8"))
+    all_refs = set()
+
+    def collect_refs(node):
+        if node.type == "type_identifier":
+            # Skip if this node is the `name` child of a scoped_type_identifier
+            # (the path prefix already qualifies it fully)
+            if node.parent and node.parent.type == "scoped_type_identifier":
+                if node == node.parent.child_by_field_name("name"):
+                    for child in node.children:
+                        collect_refs(child)
+                    return
+            all_refs.add(source[node.start_byte:node.end_byte])
+        for child in node.children:
+            collect_refs(child)
+
+    collect_refs(tree.root_node)
+
+    locally_defined = set(find_all_top_level_items(source).keys())
+    already_imported = set(find_use_stmts_for_names(source, all_refs).keys())
+    missing = all_refs - locally_defined - already_imported
+
+    if not missing:
+        return
+
+    # Restrict search to the same crate as dest_file so we don't pick up
+    # definitions from sibling crates in the same workspace.
+    crate_root = find_crate_root(dest_file)
+    if crate_root:
+        crate_src_dirs = [crate_root]
+    else:
+        crate_src_dirs = search_dirs
+
+    # Search for each missing type's definition within the same crate
+    new_use_stmts = []
+    for name in sorted(missing):
+        found = False
+        for crate_dir in crate_src_dirs:
+            for path in sorted(crate_dir.rglob("*.rs")):
+                if path == dest_file:
+                    continue
+                try:
+                    file_source = path.read_text(encoding="utf8")
+                except OSError:
+                    continue
+                if find_item_nodes(file_source, name):
+                    mod_path = module_path_from_file(path, base_dir)
+                    use_stmt = f"use crate::{mod_path}::{name};"
+                    if use_stmt not in source and use_stmt not in new_use_stmts:
+                        new_use_stmts.append(use_stmt)
+                        print(f"  auto import: {use_stmt}")
+                    found = True
+                    break
+            if found:
+                break
+
+    if not new_use_stmts:
+        return
+
+    # Insert after the last existing `use` line (or at top if none)
+    lines = source.splitlines()
+    insert_idx = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith("use "):
+            insert_idx = i + 1
+    for stmt in reversed(new_use_stmts):
+        lines.insert(insert_idx, stmt)
+    dest_file.write_text("\n".join(lines) + "\n", encoding="utf8")
 
 
 # -------------------------------
 # Main logic
 # -------------------------------
 def main():
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 5:
         print("Usage:")
-        print("  python deduplicate_struct.py <ItemName> <dest_file> <search_dir> [<search_dir>...]")
+        print("  python deduplicate_struct.py <crate_name> <ItemName> <dest_file> <search_dir> [<search_dir>...]")
         sys.exit(1)
 
-    item_name = sys.argv[1]
-    dest_file = Path(sys.argv[2]).resolve()
-    search_dirs = [Path(p).resolve() for p in sys.argv[3:]]
+    crate_name = sys.argv[1]
+    item_name = sys.argv[2]
+    dest_file = Path(sys.argv[3]).resolve()
+    search_dirs = [Path(p).resolve() for p in sys.argv[4:]]
 
     base_dir = Path(os.path.commonpath(search_dirs))
     dest_module_path = module_path_from_file(dest_file, base_dir)
+    dest_crate_root = find_crate_root(dest_file)
 
     # name -> list of text variants collected across all source files
     all_collected = {}
+    all_use_stmts = []  # use statements to carry to destination
 
     for search_dir in search_dirs:
         for path in sorted(search_dir.rglob("*.rs")):
-            extracted, new_source = process_file(path, item_name, dest_module_path)
+            if path == dest_file:
+                continue  # dest is the canonical home — don't strip it as a source
+            extracted, use_stmts, new_source = process_file(path, item_name, crate_name, dest_module_path, dest_crate_root)
 
             if extracted:
                 for name, text in extracted.items():
                     all_collected.setdefault(name, []).append(text.strip())
+                all_use_stmts.extend(use_stmts)
 
                 with open(path, "w", encoding="utf8") as f:
                     f.write(new_source)
@@ -254,18 +442,29 @@ def main():
     # Write deps before main item
     write_order = [n for n in canonical_defs if n != item_name] + [item_name]
 
+    # Deduplicate collected use statements, skip ones already in dest
+    unique_use_stmts = list(dict.fromkeys(s.strip() for s in all_use_stmts))
+
     with open(dest_file, "a", encoding="utf8") as f:
+        for stmt in unique_use_stmts:
+            if stmt not in existing:
+                f.write(stmt + "\n")
+                existing += stmt + "\n"
+                print(f"  use stmt: {stmt}")
+
         for name in write_order:
             text = canonical_defs[name]
-            if re.search(r'\b' + re.escape(name) + r'\b', existing):
+            if find_item_nodes(existing, name):  # check for actual definition, not just usage
                 print(f"Already exists in destination: {name}")
             else:
-                f.write("\n\n// --- Deduplicated ---\n\n")
-                f.write(text)
                 f.write("\n")
+                f.write(text)
                 existing += text  # update so subsequent names see it
                 label = "moved" if name == item_name else "copied (dep)"
                 print(f"  {label}: '{name}' → {dest_file}")
+
+    cleanup_redundant_use_stmts(dest_file)
+    resolve_missing_imports(dest_file, search_dirs, base_dir)
 
 
 if __name__ == "__main__":
