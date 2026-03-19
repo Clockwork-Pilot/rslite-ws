@@ -26,6 +26,8 @@ parser.language = Language(tree_sitter_rust.language())
 # -------------------------------
 # AST helpers
 # -------------------------------
+SUPPORTED_NODE_TYPES = {"struct_item", "type_item", "enum_item"}
+
 def find_struct_nodes(source_code, struct_name):
     tree = parser.parse(bytes(source_code, "utf8"))
     root = tree.root_node
@@ -33,7 +35,7 @@ def find_struct_nodes(source_code, struct_name):
     results = []
 
     def walk(node):
-        if node.type == "struct_item":
+        if node.type in SUPPORTED_NODE_TYPES:
             name_node = node.child_by_field_name("name")
             if name_node:
                 name = source_code[name_node.start_byte:name_node.end_byte]
@@ -199,7 +201,7 @@ def main():
             f.write(canonical_def)
             f.write("\n")
 
-        print(f"\nStruct '{struct_name}' moved to {dest_file}")
+        print(f"\nDefinition '{struct_name}' moved to {dest_file}")
 
 
 if __name__ == "__main__":
