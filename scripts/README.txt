@@ -21,7 +21,7 @@ python show_one_of_many_dupes.py --deduplicate-type /tmp/dupes2.json
 python dedup_incrementally.py --build --suppress-build-warnings --explicit "sql_btree BtShared crates/sql-btree/src/lib.rs" /tmp/dupes2.json progress.txt ../crust-sqlite/
 
 # Non Stop: Deduplicate in a loop one by one, commit successfull attempts
-(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --build /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && git add src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || echo "Do not commit on error"); do :; done
+(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --build --suppress-build-warnings /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && git add src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || echo "Do not commit on error"); do :; done
 
 # DRY RUN
 (cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --skip-errors /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates || echo "FAILED: $(tail -n 1 ../scripts/progress.txt)" ); do :; done

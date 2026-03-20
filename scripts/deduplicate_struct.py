@@ -253,15 +253,30 @@ def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_at
 # Module path resolution
 # -------------------------------
 def module_path_from_file(file_path, base_dir):
-    parts = list(Path(file_path).with_suffix("").parts)
+    file_path = Path(file_path)
+    base_dir = Path(base_dir)
 
-    # Prefer path relative to the last 'src' directory (Rust crate convention)
+    # Get relative path from base_dir
     try:
-        src_idx = len(parts) - 1 - list(reversed(parts)).index("src")
-        parts = parts[src_idx + 1:]
+        rel_path = file_path.relative_to(base_dir)
     except ValueError:
-        # Fallback: relative to base_dir
-        parts = list(Path(file_path).relative_to(base_dir).with_suffix("").parts)
+        rel_path = file_path
+
+    parts = list(rel_path.with_suffix("").parts)
+
+    # If the first part is 'src', it's a module declared in lib.rs, so keep it
+    # Otherwise, strip 'src' if it appears (e.g., in crates subdirectories)
+    if parts and parts[0] == "src":
+        # Keep src as part of the module path
+        pass
+    else:
+        # Look for 'src' directory and use parts after it
+        try:
+            src_idx = parts.index("src")
+            parts = parts[src_idx + 1:]
+        except ValueError:
+            # No 'src' directory, use as-is
+            pass
 
     if parts and parts[-1] in ("mod", "lib"):
         parts = parts[:-1]
