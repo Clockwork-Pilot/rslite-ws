@@ -548,9 +548,8 @@ def main():
     # Track redirected names so we can fix use statements in source files.
     dest_crate_root_resolved = find_crate_root(dest_file)
     extern_redirects = {}  # name -> correct module_path (within the crate)
+    crate_files = {}
     if dest_crate_root_resolved:
-        # Build a cache of what's defined in each crate file
-        crate_files = {}
         for path in sorted(dest_crate_root_resolved.rglob("*.rs")):
             if path.resolve() == dest_file:
                 continue
@@ -591,6 +590,7 @@ def main():
                 existing += stmt + "\n"
                 print(f"  use stmt: {stmt}")
 
+        names_written = []
         for name in write_order:
             text = canonical_defs[name]
             if find_item_nodes(existing, name) or name in existing_extern_types:
@@ -599,11 +599,46 @@ def main():
                 f.write("\n")
                 f.write(text)
                 existing += text  # update so subsequent names see it
+                names_written.append(name)
                 label = "moved" if name == item_name else "copied (dep)"
                 print(f"  {label}: '{name}' → {dest_file}")
 
     cleanup_redundant_use_stmts(dest_file)
     resolve_missing_imports(dest_file, search_dirs, base_dir)
+
+    # Clean up stale definitions in other crate files: if we just wrote a name to
+    # the dest file, any other file in the same crate that has a duplicate definition
+    # (from a previous iteration copying it as a dep) must have that definition removed
+    # and replaced with `use crate::<dest_module>::<name>;`.
+    if names_written and dest_crate_root_resolved:
+        for path, file_src in crate_files.items():
+            changed = False
+            for name in names_written:
+                is_extern = canonical_defs.get(name, "").startswith('extern "C" {')
+                if is_extern:
+                    extern_defs = find_foreign_opaque_types(file_src)
+                    if name in extern_defs:
+                        info = extern_defs[name]
+                        file_src = file_src[:info["start"]] + file_src[info["end"]:]
+                        use_stmt = f"use crate::{dest_module_path}::{name};"
+                        if use_stmt not in file_src:
+                            file_src = ensure_use_statement(file_src, name, "crate", dest_module_path)
+                        changed = True
+                        print(f"  cleaned stale extern type '{name}' in {path}")
+                else:
+                    nodes = find_item_nodes(file_src, name)
+                    if nodes:
+                        spans = [extract_item_with_attributes(file_src, n) for n in nodes]
+                        for _, start, end in sorted(spans, key=lambda x: x[1], reverse=True):
+                            file_src = file_src[:start] + file_src[end:]
+                        use_stmt = f"use crate::{dest_module_path}::{name};"
+                        if use_stmt not in file_src:
+                            file_src = ensure_use_statement(file_src, name, "crate", dest_module_path)
+                        changed = True
+                        print(f"  cleaned stale def '{name}' in {path}")
+            if changed:
+                path.write_text(file_src, encoding="utf8")
+                cleanup_redundant_use_stmts(path)
 
     # Fix source file use statements for extern types that got redirected to a
     # different module within the crate. E.g., source files may have gotten

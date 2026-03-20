@@ -17,8 +17,11 @@ python create_crates_boilerplate.py /tmp/dupes.json ../crust-sqlite/crates/
 # Manually deduplicate one type item (debug with claude)
 (cd ../crust-sqlite && git checkout src crates) && python deduplicate_struct.py ext-fts3-fts3 Fts3Cursor crates/ext-fts3-fts3/src/fts3_cursor.rs src/ && (cd ../crust-sqlite && cargo build)
 
-# All-in-one: Deduplicate in a loop one by one, commit succesfull ones
-(cd ../crust-sqlite && git checkout src crates) && while python dedup_incrementally.py /tmp/dupes.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add src crates && git commit -m "`tail -n 1 ../scripts/progress.txt`" ); do :; done
+# All-in-one: Deduplicate in a loop one by one, commit successfull attempts
 
+## Stop on first error:
+(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py /tmp/dupes.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)"); do :; done
 
+## Continue past errors NON STOP:
+(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --skip-errors /tmp/dupes.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || git checkout -- src crates); do :; done
 
