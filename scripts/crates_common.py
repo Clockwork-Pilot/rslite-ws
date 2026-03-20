@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -29,3 +30,39 @@ def rs_file_name_from_type_name(name):
     s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     s = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", s)
     return s.lower()
+
+
+def load_crate_requirements():
+    """Load crate requirements from crate-requirements.json."""
+    req_file = Path(__file__).parent / "crate-requirements.json"
+    if not req_file.exists():
+        return []
+
+    with open(req_file, encoding="utf8") as f:
+        data = json.load(f)
+    return data.get("requirements", [])
+
+
+def detect_required_features(content):
+    """Detect which crate requirements are needed based on content patterns.
+
+    Returns dict with keys:
+    - "features": list of Rust features to enable
+    - "uses": list of use statements to add
+    - "dependencies": dict of crate_name -> version
+    """
+    requirements = load_crate_requirements()
+    result = {"features": [], "uses": [], "dependencies": {}}
+
+    for req in requirements:
+        patterns = req.get("patterns", [])
+        if any(pattern in content for pattern in patterns):
+            result["features"].extend(req.get("features", []))
+            result["uses"].extend(req.get("uses", []))
+            result["dependencies"].update(req.get("dependencies", {}))
+
+    # Remove duplicates while preserving order
+    result["features"] = list(dict.fromkeys(result["features"]))
+    result["uses"] = list(dict.fromkeys(result["uses"]))
+
+    return result

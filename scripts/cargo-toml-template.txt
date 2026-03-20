@@ -1,8 +1,8 @@
 [package]
-name = "CRATE_NAME"
+name = "{crate_name}"
 version = "0.1.0"
 edition = "2021"
-description = "CRATE_NAME"
+description = "{crate_name}"
 publish = false
 
 [dependencies]

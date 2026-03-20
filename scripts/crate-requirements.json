@@ -1,0 +1,19 @@
+{
+  "requirements": [
+    {
+      "name": "bitfield_macros",
+      "description": "Detect #[bitfield(...)] and #[derive(BitfieldStruct)]",
+      "patterns": ["#[bitfield", "BitfieldStruct"],
+      "dependencies": {
+        "c2rust-bitfields": "0.22"
+      },
+      "uses": ["use c2rust_bitfields::*;"]
+    },
+    {
+      "name": "extern_types",
+      "description": "Detect extern opaque types",
+      "patterns": ["extern \"C\" {"],
+      "features": ["extern_types"]
+    }
+  ]
+}

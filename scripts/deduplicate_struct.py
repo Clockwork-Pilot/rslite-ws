@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_rust
+from crates_common import detect_required_features
 from crates_common import import_crate_name
 
 parser = Parser()
@@ -779,23 +780,40 @@ def main():
                 if changed:
                     path.write_text(src, encoding="utf8")
 
-    # If any extern opaque types were written, ensure the crate's lib.rs has
-    # #![feature(extern_types)] since those declarations require it.
-    wrote_extern_types = any(
-        t.startswith('extern "C" {')
-        for texts in all_collected.values()
-        for t in texts
+    # Detect and apply crate requirements based on generated code content
+    all_src = "\n".join(
+        t for texts in all_collected.values() for t in texts
     )
-    if wrote_extern_types:
-        crate_root = find_crate_root(dest_file)
-        if crate_root:
-            lib_rs = crate_root / "src" / "lib.rs"
-            if lib_rs.exists():
-                lib_src = lib_rs.read_text(encoding="utf8")
-                feature = "#![feature(extern_types)]"
-                if feature not in lib_src:
-                    lib_rs.write_text(feature + "\n" + lib_src, encoding="utf8")
-                    print(f"  added {feature} to {lib_rs}")
+    requirements = detect_required_features(all_src)
+
+    crate_root = find_crate_root(dest_file)
+    if crate_root:
+        lib_rs = crate_root / "src" / "lib.rs"
+        if lib_rs.exists():
+            lib_src = lib_rs.read_text(encoding="utf8")
+
+            # Add required features
+            for feature in requirements.get("features", []):
+                feature_line = f"#![feature({feature})]"
+                if feature_line not in lib_src:
+                    lib_src = feature_line + "\n" + lib_src
+                    print(f"  added {feature_line} to {lib_rs}")
+
+            # Add required use statements (after features)
+            for use_stmt in requirements.get("uses", []):
+                if use_stmt not in lib_src:
+                    lines = lib_src.split("\n")
+                    # Find insertion point after features
+                    insert_pos = 0
+                    for i, line in enumerate(lines):
+                        if line.startswith("#![feature"):
+                            insert_pos = i + 1
+                    lines.insert(insert_pos, use_stmt)
+                    lib_src = "\n".join(lines)
+                    print(f"  added '{use_stmt}' to {lib_rs}")
+
+            # Write back if anything changed
+            lib_rs.write_text(lib_src + "\n" if not lib_src.endswith("\n") else lib_src, encoding="utf8")
 
 
 if __name__ == "__main__":

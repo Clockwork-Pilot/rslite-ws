@@ -72,7 +72,7 @@ def main():
     # fixing TypeError: sequence item 1: expected str instance, PosixPath found
     cmd = [str(c) for c in cmd]
     print(f"Command: {' '.join(cmd)}")
-    result = subprocess.run(cmd)  
+    result = subprocess.run(cmd)
 
     with open(acc_file, "a", encoding="utf8") as f:
         if result.returncode != 0:
@@ -81,7 +81,7 @@ def main():
             sys.exit(0 if skip_errors else 2)
 
         if build_mode:
-            print("Running cargo build...")
+            print("\nRunning cargo build...")
             env = None
             if suppress_build_warnings:
                 env = os.environ.copy()

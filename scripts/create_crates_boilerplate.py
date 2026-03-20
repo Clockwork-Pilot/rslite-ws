@@ -4,19 +4,33 @@ from pathlib import Path
 
 from crates_common import file_stem_to_crate_name
 
+SCRIPTS_DIR = Path(__file__).parent
 
-CARGO_TOML = """\
+
+def load_cargo_toml_template(crate_name):
+    """Load Cargo.toml template and substitute crate name."""
+    template_file = SCRIPTS_DIR / "cargo-toml-template.txt"
+    if not template_file.exists():
+        # Fallback to minimal template
+        return f"""\
 [package]
 name = "{crate_name}"
 version = "0.1.0"
 edition = "2021"
 """
 
+    template_content = template_file.read_text(encoding="utf8")
+    return template_content.format(crate_name=crate_name)
+
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python create_crates_boilerplate.py <dupes.json> <crates_base_dir>")
+        print("Usage: python create_crates_boilerplate.py [--overwrite-toml-files] <dupes.json> <crates_base_dir>")
         sys.exit(1)
+
+    overwrite_toml = "--overwrite-toml-files" in sys.argv
+    if overwrite_toml:
+        sys.argv.remove("--overwrite-toml-files")
 
     dupes_file = sys.argv[1]
     crates_base = Path(sys.argv[2]).resolve()
@@ -40,9 +54,12 @@ def main():
         src_dir.mkdir(parents=True, exist_ok=True)
 
         cargo_toml = crate_dir / "Cargo.toml"
-        if not cargo_toml.exists():
-            cargo_toml.write_text(CARGO_TOML.format(crate_name=crate_name), encoding="utf8")
-            print(f"created {crate_name}/Cargo.toml")
+        exists_before = cargo_toml.exists()
+        if not exists_before or overwrite_toml:
+            cargo_content = load_cargo_toml_template(crate_name)
+            cargo_toml.write_text(cargo_content, encoding="utf8")
+            action = "updated" if exists_before else "created"
+            print(f"{action} {crate_name}/Cargo.toml")
 
         lib_rs = src_dir / "lib.rs"
         if not lib_rs.exists():
