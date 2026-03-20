@@ -192,6 +192,14 @@ def find_use_stmts_for_names(source_code, names):
 
 
 # -------------------------------
+# Visibility helpers
+# -------------------------------
+def ensure_pub(text):
+    """Add pub visibility to struct/type/enum definitions that lack it."""
+    return re.sub(r'^([ \t]*)(?!pub[\s(])(struct|type|enum)(\s)', r'\1pub \2\3', text, flags=re.MULTILINE)
+
+
+# -------------------------------
 # Use statement handling
 # -------------------------------
 def ensure_use_statement(source_code, item_name, use_prefix, module_path):
@@ -646,7 +654,7 @@ def main():
 
         names_written = []
         for name in write_order:
-            text = canonical_defs[name]
+            text = ensure_pub(canonical_defs[name])
             if find_item_nodes(existing, name) or name in existing_extern_types:
                 print(f"Already exists in destination: {name}")
             else:

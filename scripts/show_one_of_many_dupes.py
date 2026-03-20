@@ -30,6 +30,8 @@ def main():
 
     if deduplicate:
         for name, info in data["names"].items():
+            if len(info["occurs"]) <= 1:
+                continue
             c_decl = info.get("c_decl_file", "")
             if Path(c_decl).suffix == ".h":
                 crate_name = file_stem_to_crate_name(c_decl)

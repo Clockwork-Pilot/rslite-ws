@@ -19,11 +19,15 @@ python show_one_of_many_dupes.py --deduplicate-type /tmp/dupes2.json
 
 # All-in-one: Deduplicate in a loop one by one, commit successfull attempts
 
-## Stop on first error:
-(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)"); do :; done
-
 ## NON STOP:
-(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --skip-errors /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || git checkout -- src crates); do :; done
+(cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --build /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && git add src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || echo "Do not commit on error"); do :; done
 
 # DRY RUN
 (cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --skip-errors /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates || echo "FAILED: $(tail -n 1 ../scripts/progress.txt)" ); do :; done
+
+
+# To fix errors related to private declarations:
+(deduplicate_struct.py):
+      657 -            text = canonical_defs[name]
+      657 +            text = ensure_pub(canonical_defs[name])
+

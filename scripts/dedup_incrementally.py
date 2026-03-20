@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -9,8 +10,8 @@ def load_accumulator(acc_file):
     if not Path(acc_file).exists():
         return set()
     lines = Path(acc_file).read_text(encoding="utf8").splitlines()
-    # Strip trailing FAILED marker to get the base line for comparison
-    return {line.removesuffix(" FAILED") for line in lines if line.strip()}
+    # Strip trailing *FAILED markers (FAILED, BUILD_FAILED) to get the base line
+    return {re.sub(r' +\S*FAILED$', '', line) for line in lines if line.strip()}
 
 
 def get_dedup_lines(dedups_file):
@@ -25,11 +26,13 @@ def get_dedup_lines(dedups_file):
 def main():
     args = sys.argv[1:]
     skip_errors = "--skip-errors" in args
-    if skip_errors:
-        args.remove("--skip-errors")
+    build_mode = "--build" in args
+    for flag in ("--skip-errors", "--build"):
+        if flag in args:
+            args.remove(flag)
 
     if len(args) < 3:
-        print("Usage: python dedup_incrementally.py [--skip-errors] <dedups.json> <accumulator.txt> <crust_sqlite_dir>")
+        print("Usage: python dedup_incrementally.py [--skip-errors] [--build] <dedups.json> <accumulator.txt> <crust_sqlite_dir>")
         sys.exit(1)
 
     dedups_file = args[0]
@@ -56,13 +59,25 @@ def main():
 
     with open(acc_file, "a", encoding="utf8") as f:
         if result.returncode != 0:
-            f.write(pending + " FAILED\n")
-            print(f"FAILED: {pending}")
+            f.write(pending + " DEDUP_FAILED\n")
+            print(f"DEDUP_FAILED: {pending}")
             sys.exit(0 if skip_errors else 2)
-        else:
-            f.write(pending + "\n")
-            print(f"OK: {pending}")
-            sys.exit(0)
+
+        if build_mode:
+            print("Running cargo build...")
+            build_result = subprocess.run(["cargo", "build"], cwd=base_dir)
+            if build_result.returncode != 0:
+                subprocess.run(["git", "checkout", "src", "crates"], cwd=base_dir)
+                f.write(pending + " BUILD_FAILED\n")
+                print(f"BUILD_FAILED: {pending}")
+                sys.exit(0 if skip_errors else 3)
+            else:
+                subprocess.run(["git", "add", "src", "crates"], cwd=base_dir)
+                print(f"BUILD_OK: {pending}")
+
+        f.write(pending + "\n")
+        print(f"OK: {pending}")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
