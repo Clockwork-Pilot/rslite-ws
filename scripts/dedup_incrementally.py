@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -27,35 +28,51 @@ def main():
     args = sys.argv[1:]
     skip_errors = "--skip-errors" in args
     build_mode = "--build" in args
-    for flag in ("--skip-errors", "--build"):
+    suppress_build_warnings = "--suppress-build-warnings" in args
+    explicit_line = None
+
+    # Extract --explicit value
+    if "--explicit" in args:
+        idx = args.index("--explicit")
+        if idx + 1 < len(args):
+            explicit_line = args[idx + 1]
+            args.pop(idx + 1)
+            args.pop(idx)
+
+    for flag in ("--skip-errors", "--build", "--suppress-build-warnings"):
         if flag in args:
             args.remove(flag)
 
     if len(args) < 3:
-        print("Usage: python dedup_incrementally.py [--skip-errors] [--build] <dedups.json> <accumulator.txt> <crust_sqlite_dir>")
+        print("Usage: python dedup_incrementally.py [--skip-errors] [--build] [--explicit <line>] <dedups.json> <accumulator.txt> <crust_sqlite_dir>")
         sys.exit(1)
 
     dedups_file = args[0]
     acc_file = args[1]
     base_dir = Path(args[2]).resolve()
 
-    done = load_accumulator(acc_file)
-    all_lines = get_dedup_lines(dedups_file)
+    if explicit_line:
+        pending = explicit_line
+    else:
+        done = load_accumulator(acc_file)
+        all_lines = get_dedup_lines(dedups_file)
 
-    pending = next((l for l in all_lines if l not in done), None)
-    if pending is None:
-        print("Nothing left to deduplicate.", file=sys.stderr)
-        sys.exit(1)
+        pending = next((l for l in all_lines if l not in done), None)
+        if pending is None:
+            print("Nothing left to deduplicate.", file=sys.stderr)
+            sys.exit(1)
 
     parts = pending.split()
     crate_name, type_name, dest_file = parts[0], parts[1], parts[2]
 
-    print(f"Processing: {pending}")
+    print(f"Processing: {pending}\n")
 
-    result = subprocess.run(
-        [sys.executable, SCRIPTS_DIR / "deduplicate_struct.py",
-         crate_name, type_name, dest_file, str(base_dir)],
-    )
+    cmd = [sys.executable, SCRIPTS_DIR / "deduplicate_struct.py",
+           crate_name, type_name, dest_file, str(base_dir)]
+    # fixing TypeError: sequence item 1: expected str instance, PosixPath found
+    cmd = [str(c) for c in cmd]
+    print(f"Command: {' '.join(cmd)}")
+    result = subprocess.run(cmd)  
 
     with open(acc_file, "a", encoding="utf8") as f:
         if result.returncode != 0:
@@ -65,7 +82,11 @@ def main():
 
         if build_mode:
             print("Running cargo build...")
-            build_result = subprocess.run(["cargo", "build"], cwd=base_dir)
+            env = None
+            if suppress_build_warnings:
+                env = os.environ.copy()
+                env["RUSTFLAGS"] = "-Awarnings"
+            build_result = subprocess.run(["cargo", "build"], cwd=base_dir, env=env)
             if build_result.returncode != 0:
                 subprocess.run(["git", "checkout", "src", "crates"], cwd=base_dir)
                 f.write(pending + " BUILD_FAILED\n")

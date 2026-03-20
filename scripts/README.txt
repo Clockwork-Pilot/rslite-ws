@@ -1,5 +1,5 @@
-# Example of moving particular struct
-See commands.sh
+# Start
+cd scripts
 
 # Prerequisites
 pip install tree_sitter
@@ -17,9 +17,10 @@ python show_one_of_many_dupes.py --deduplicate-type /tmp/dupes2.json
 # Manually deduplicate one type item (debug with claude)
 (cd ../crust-sqlite && git checkout src crates) && python deduplicate_struct.py ext_fts3_int Fts3Cursor crates/ext-fts3-int/src/lib.rs ../crust-sqlite/src/ && (cd ../crust-sqlite && cargo build)
 
-# All-in-one: Deduplicate in a loop one by one, commit successfull attempts
+# high level for  Claude debugging
+python dedup_incrementally.py --build --suppress-build-warnings --explicit "sql_btree BtShared crates/sql-btree/src/lib.rs" /tmp/dupes2.json progress.txt ../crust-sqlite/
 
-## NON STOP:
+# Non Stop: Deduplicate in a loop one by one, commit successfull attempts
 (cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --build /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && git add src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" || echo "Do not commit on error"); do :; done
 
 # DRY RUN
