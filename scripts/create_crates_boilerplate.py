@@ -2,8 +2,7 @@ import json
 import sys
 from pathlib import Path
 
-from show_one_of_many_dupes import build_by_file
-from crates_common import file_stem_to_crate_name, rs_file_name_from_type_name
+from crates_common import file_stem_to_crate_name
 
 
 CARGO_TOML = """\
@@ -12,7 +11,6 @@ name = "{crate_name}"
 version = "0.1.0"
 edition = "2021"
 """
-
 
 
 def main():
@@ -26,50 +24,34 @@ def main():
     with open(dupes_file, encoding="utf8") as f:
         data = json.load(f)
 
-    by_file = build_by_file(data)
+    # Collect unique .h c_decl_file values
+    c_headers = sorted({
+        info["c_decl_file"]
+        for info in data["names"].values()
+        if Path(info.get("c_decl_file", "")).suffix == ".h"
+    })
 
     crate_names = []
-    for file_path in sorted(by_file.keys()):
-        crate_name = file_stem_to_crate_name(file_path)
+    for c_header in c_headers:
+        crate_name = file_stem_to_crate_name(c_header)
         crate_dir = crates_base / crate_name
         src_dir = crate_dir / "src"
-        type_names = by_file[file_path]
 
-        if not crate_dir.exists():
-            src_dir.mkdir(parents=True)
-            print(f"created crate: {crate_name}")
+        src_dir.mkdir(parents=True, exist_ok=True)
 
         cargo_toml = crate_dir / "Cargo.toml"
         if not cargo_toml.exists():
             cargo_toml.write_text(CARGO_TOML.format(crate_name=crate_name), encoding="utf8")
-            print(f"  created Cargo.toml")
-
-        if not src_dir.exists():
-            src_dir.mkdir(parents=True)
-
-        for name in type_names:
-            file_name = rs_file_name_from_type_name(name)
-            rs_file = src_dir / f"{file_name}.rs"
-            if not rs_file.exists():
-                rs_file.write_text("", encoding="utf8")
-                print(f"  created src/{file_name}.rs")
+            print(f"created {crate_name}/Cargo.toml")
 
         lib_rs = src_dir / "lib.rs"
-        existing_lib = lib_rs.read_text(encoding="utf8") if lib_rs.exists() else ""
-        new_mods = [
-            f"pub mod {rs_file_name_from_type_name(name)};"
-            for name in type_names
-            if f"pub mod {rs_file_name_from_type_name(name)};" not in existing_lib
-        ]
-        if new_mods:
-            with open(lib_rs, "a", encoding="utf8") as f:
-                f.write("\n".join(new_mods) + "\n")
-            for mod in new_mods:
-                print(f"  added to lib.rs: {mod}")
+        if not lib_rs.exists():
+            lib_rs.write_text("", encoding="utf8")
+            print(f"created {crate_name}/src/lib.rs")
 
         crate_names.append(crate_name)
 
-    print("workspace.members")
+    print("\nworkspace.members")
     last = len(crate_names) - 1
     for i, crate_name in enumerate(crate_names):
         comma = "," if i < last else ""

@@ -6,16 +6,16 @@ pip install tree_sitter
 pip install tree-sitter-rust
 
 # List types dups
-python find_duplicates.py ../crust-sqlite/src/ > /tmp/dupes.json
+python find_duplicates.py ~/git/sqlite-no-amalgam ../crust-sqlite/src/ > /tmp/dupes2.json
+
+# Create crates boilerplate, and list copy-paste ready workspace artifacts
+python create_crates_boilerplate.py /tmp/dupes2.json ../crust-sqlite/crates/
 
 # Get list: <crate name> <type name> <move to new destination rs>
 python show_one_of_many_dupes.py --deduplicate-type /tmp/dupes.json
 
-# Create crates boilerplate, and list copy-paste ready workspace artifacts
-python create_crates_boilerplate.py /tmp/dupes.json ../crust-sqlite/crates/
-
 # Manually deduplicate one type item (debug with claude)
-(cd ../crust-sqlite && git checkout src crates) && python deduplicate_struct.py ext-fts3-fts3 Fts3Cursor crates/ext-fts3-fts3/src/fts3_cursor.rs src/ && (cd ../crust-sqlite && cargo build)
+(cd ../crust-sqlite && git checkout src) && python inline_dedup.py Fts3Cursor ../crust-sqlite/src/ && (cd ../crust-sqlite && cargo build)
 
 # All-in-one: Deduplicate in a loop one by one, commit successfull attempts
 

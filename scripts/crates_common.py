@@ -3,8 +3,14 @@ from pathlib import Path
 
 
 def file_stem_to_crate_name(file_path):
-    """Derive crate name from file path as-is: strip extension, replace / with -."""
-    return Path(file_path).with_suffix("").as_posix().replace("/", "-").replace("src", "sql")
+    """Derive dash-case crate name from a file path (strips extension, camelCase → dash-case)."""
+    parts = Path(file_path).with_suffix("").parts
+    dash_parts = []
+    for part in parts:
+        s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])|(?<=[a-z\d])(?=[A-Z])", "-", part)
+        dash_parts.append(s.lower().replace("_", "-"))
+    joined = "-".join(dash_parts).replace("src", "sql")
+    return re.sub(r"\b(\w+)-\1\b", r"\1", joined)
 
 
 def import_crate_name(crate_name):
