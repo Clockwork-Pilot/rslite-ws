@@ -195,7 +195,10 @@ def find_use_stmts_for_names(source_code, names):
 # Use statement handling
 # -------------------------------
 def ensure_use_statement(source_code, item_name, use_prefix, module_path):
-    use_stmt = f"use {use_prefix}::{module_path}::{item_name};"
+    if module_path:
+        use_stmt = f"use {use_prefix}::{module_path}::{item_name};"
+    else:
+        use_stmt = f"use {use_prefix}::{item_name};"
 
     if use_stmt in source_code:
         return source_code
@@ -225,7 +228,7 @@ def module_path_from_file(file_path, base_dir):
         # Fallback: relative to base_dir
         parts = list(Path(file_path).relative_to(base_dir).with_suffix("").parts)
 
-    if parts and parts[-1] == "mod":
+    if parts and parts[-1] in ("mod", "lib"):
         parts = parts[:-1]
 
     return "::".join(parts)
@@ -481,12 +484,51 @@ def main():
 
     crate_name = sys.argv[1]
     item_name = sys.argv[2]
-    dest_file = Path(sys.argv[3]).resolve()
     search_dirs = [Path(p).resolve() for p in sys.argv[4:]]
+
+    dest_arg = Path(sys.argv[3])
+    if dest_arg.is_absolute():
+        dest_file = dest_arg.resolve()
+    else:
+        # Resolve relative dest path against the workspace root inferred from
+        # the first search dir, not the cwd.
+        workspace = find_crate_root(search_dirs[0])
+        dest_file = (workspace / dest_arg).resolve() if workspace else dest_arg.resolve()
 
     base_dir = Path(os.path.commonpath(search_dirs))
     dest_module_path = module_path_from_file(dest_file, base_dir)
     dest_crate_root = find_crate_root(dest_file)
+
+    # If the item already lives in dest_file, keep it there and only replace
+    # definitions in other files with use statements (inline-dedup mode).
+    dest_source = dest_file.read_text(encoding="utf8") if dest_file.exists() else ""
+    if find_item_nodes(dest_source, item_name):
+        print(f"'{item_name}' already in {dest_file} — replacing duplicates with use statements")
+        for search_dir in search_dirs:
+            for path in sorted(search_dir.rglob("*.rs")):
+                if path.resolve() == dest_file:
+                    continue
+                source = path.read_text(encoding="utf8")
+                nodes = find_item_nodes(source, item_name)
+                if not nodes:
+                    continue
+                new_source = source
+                for _, start, end in sorted(
+                    [extract_item_with_attributes(source, n) for n in nodes],
+                    key=lambda x: x[1], reverse=True,
+                ):
+                    new_source = new_source[:start] + new_source[end:]
+                extern_opaque = find_foreign_opaque_types(new_source)
+                if item_name in extern_opaque:
+                    info = extern_opaque[item_name]
+                    new_source = new_source[:info["start"]] + new_source[info["end"]:]
+                source_crate_root = find_crate_root(path)
+                use_prefix = "crate" if source_crate_root == dest_crate_root else import_crate_name(crate_name)
+                new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
+                path.write_text(new_source, encoding="utf8")
+                cleanup_redundant_use_stmts(path)
+                print(f"Updated: {path}")
+        return
 
     # name -> list of text variants collected across all source files
     all_collected = {}
