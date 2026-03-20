@@ -490,10 +490,22 @@ def main():
     if dest_arg.is_absolute():
         dest_file = dest_arg.resolve()
     else:
-        # Resolve relative dest path against the workspace root inferred from
-        # the first search dir, not the cwd.
-        workspace = find_crate_root(search_dirs[0])
-        dest_file = (workspace / dest_arg).resolve() if workspace else dest_arg.resolve()
+        dest_file = None
+        for sd in search_dirs:
+            # Try direct join first
+            candidate = (sd / dest_arg).resolve()
+            if candidate.exists():
+                dest_file = candidate
+                break
+            # Try finding it nested anywhere under search_dir
+            matches = sorted(sd.rglob(str(dest_arg)))
+            if matches:
+                dest_file = matches[0].resolve()
+                break
+        if dest_file is None:
+            # File not found (e.g. new lib.rs not yet created) — fall back to workspace
+            workspace = find_crate_root(search_dirs[0])
+            dest_file = (workspace / dest_arg).resolve() if workspace else (search_dirs[0] / dest_arg).resolve()
 
     base_dir = Path(os.path.commonpath(search_dirs))
     dest_module_path = module_path_from_file(dest_file, base_dir)

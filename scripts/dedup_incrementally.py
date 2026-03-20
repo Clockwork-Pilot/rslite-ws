@@ -45,13 +45,13 @@ def main():
         sys.exit(1)
 
     parts = pending.split()
-    type_name = parts[1]
+    crate_name, type_name, dest_file = parts[0], parts[1], parts[2]
 
     print(f"Processing: {pending}")
 
     result = subprocess.run(
-        [sys.executable, SCRIPTS_DIR / "inline_dedup.py",
-         type_name, str(base_dir)],
+        [sys.executable, SCRIPTS_DIR / "deduplicate_struct.py",
+         crate_name, type_name, dest_file, str(base_dir)],
     )
 
     with open(acc_file, "a", encoding="utf8") as f:
