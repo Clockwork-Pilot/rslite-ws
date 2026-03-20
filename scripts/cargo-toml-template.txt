@@ -1,0 +1,11 @@
+[package]
+name = "CRATE_NAME"
+version = "0.1.0"
+edition = "2021"
+description = "CRATE_NAME"
+publish = false
+
+[dependencies]
+c2rust-bitfields = "0.22.1"
+libc = "0.2"
+
