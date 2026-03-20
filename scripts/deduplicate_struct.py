@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_rust
-from crates_common import detect_required_features
+from crates_common import detect_required_features, analyze_conflicting_definitions, format_conflict_report
 from crates_common import import_crate_name
 
 parser = Parser()
@@ -55,7 +55,11 @@ def find_all_top_level_items(source_code):
 
 
 def find_type_refs_in_node(source_code, node):
-    """Collect all type_identifier names referenced within a node's subtree."""
+    """Collect all type_identifier names referenced within a node's subtree.
+
+    Uses tree-sitter for structured matching, plus regex fallback for union
+    types and other edge cases that tree-sitter might miss.
+    """
     refs = set()
 
     def walk(n):
@@ -65,6 +69,20 @@ def find_type_refs_in_node(source_code, node):
             walk(child)
 
     walk(node)
+
+    # Fallback: regex-based scan for likely type references in field declarations
+    # Matches patterns like ": TypeName" or ": *mut TypeName" or ": TypeName,"
+    node_text = source_code[node.start_byte:node.end_byte]
+    # Look for identifiers after colons (type annotations)
+    type_pattern = r':\s*\*?(?:const|mut)?\s*([a-zA-Z_]\w*)\b'
+    for match in re.finditer(type_pattern, node_text):
+        type_name = match.group(1)
+        # Skip Rust keywords and common patterns
+        if type_name not in ('c_int', 'c_uint', 'c_void', 'c_char', 'c_double', 'c_schar',
+                              'c_uchar', 'c_short', 'c_ushort', 'c_long', 'c_ulong',
+                              'core', 'ffi'):
+            refs.add(type_name)
+
     return refs
 
 
@@ -632,6 +650,8 @@ def main():
     # Per-name uniqueness check
     canonical_defs = {}  # name -> canonical text
     conflicting_names = set()
+    conflicting_with_sources = {}  # name -> [(file, definition), ...]
+
     for name, texts in all_collected.items():
         unique = list(dict.fromkeys(texts))
         if len(unique) > 1:
@@ -639,8 +659,18 @@ def main():
             for i, d in enumerate(unique):
                 print(f"  definition {i+1}: {d[:60]}...")
             conflicting_names.add(name)
+            # Store for detailed analysis
+            conflicting_with_sources[name] = [
+                (f"source_{i}", texts[i]) for i in range(len(unique))
+            ]
             continue
         canonical_defs[name] = unique[0]
+
+    # If there are conflicts, generate a detailed report
+    if conflicting_with_sources:
+        report = analyze_conflicting_definitions(conflicting_with_sources)
+        conflict_report = format_conflict_report(report)
+        print(conflict_report)
 
     if item_name in conflicting_names:
         print(f"ERROR: Main item '{item_name}' has conflicting definitions!")
