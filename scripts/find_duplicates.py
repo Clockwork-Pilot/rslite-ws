@@ -77,30 +77,35 @@ def main():
 
     c_index = build_c_index(c_project)
 
-    # name -> {kind, files: []}
+    # (name, kind) -> {files: []}
     index = {}
 
     for search_dir in search_dirs:
         for path in sorted(search_dir.rglob("*.rs")):
             rel = str(path.relative_to(search_dir))
             for name, kind in collect_items(path):
-                if name not in index:
-                    index[name] = {"kind": kind, "files": []}
-                if rel not in index[name]["files"]:
-                    index[name]["files"].append(rel)
+                key = (name, kind)
+                if key not in index:
+                    index[key] = {"files": []}
+                if rel not in index[key]["files"]:
+                    index[key]["files"].append(rel)
 
     # Build output structure sorted by occurrence count ascending
     names = {}
-    for name, info in sorted(index.items(), key=lambda x: len(x[1]["files"])):
+    for (name, kind), info in sorted(index.items(), key=lambda x: len(x[1]["files"])):
         entry = {
-            "kind": info["kind"],
+            "kind": kind,
             "occurs": [
                 {"count": i + 1, "file": f}
                 for i, f in enumerate(info["files"])
             ],
         }
         entry["c_decl_file"] = c_index.get(name, "sqlite3-unmatched.h")
-        names[name] = entry
+        # If same name with different kinds exist, append kind suffix
+        output_name = name
+        if names.get(name):
+            output_name = f"{name}[{kind}]"
+        names[output_name] = entry
 
     print(json.dumps({"names": names}, indent=2))
 

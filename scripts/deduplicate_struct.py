@@ -200,15 +200,35 @@ def ensure_pub(text):
 
 
 # -------------------------------
+# Attribute extraction
+# -------------------------------
+def extract_cfg_attrs(text):
+    """Extract #[cfg(...)] attributes from a definition text."""
+    attrs = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("#[cfg"):
+            attrs.append(line)
+        elif line and not line.startswith("#"):
+            break
+    return "\n".join(attrs) if attrs else ""
+
+
+# -------------------------------
 # Use statement handling
 # -------------------------------
-def ensure_use_statement(source_code, item_name, use_prefix, module_path):
+def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_attrs=""):
     if module_path:
         use_stmt = f"use {use_prefix}::{module_path}::{item_name};"
     else:
         use_stmt = f"use {use_prefix}::{item_name};"
 
-    if use_stmt in source_code:
+    # Build full statement with cfg guards if needed
+    full_stmt = use_stmt
+    if cfg_attrs:
+        full_stmt = cfg_attrs + "\n" + use_stmt
+
+    if full_stmt in source_code or use_stmt in source_code:
         return source_code
 
     lines = source_code.splitlines()
@@ -218,7 +238,14 @@ def ensure_use_statement(source_code, item_name, use_prefix, module_path):
         if line.strip().startswith("use "):
             insert_idx = i + 1
 
+    # Insert cfg lines first, then use line
+    if cfg_attrs:
+        for cfg_line in cfg_attrs.splitlines():
+            lines.insert(insert_idx, cfg_line)
+            insert_idx += 1
+
     lines.insert(insert_idx, use_stmt)
+
     return "\n".join(lines) + "\n"
 
 
@@ -262,10 +289,14 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
 
     # Extract spans for main item and all deps
     main_text, main_start, main_end = extract_item_with_attributes(source, main_node)
+    main_cfg = extract_cfg_attrs(main_text)
 
     dep_spans = {}  # name -> (text, start, end)
+    dep_cfgs = {}   # name -> cfg_attrs_string
     for name, node in dep_nodes.items():
-        dep_spans[name] = extract_item_with_attributes(source, node)
+        text, start, end = extract_item_with_attributes(source, node)
+        dep_spans[name] = (text, start, end)
+        dep_cfgs[name] = extract_cfg_attrs(text)
 
     # Build a source with ALL candidates removed to check residual references
     all_spans = [(main_start, main_end)] + [(s, e) for _, s, e in dep_spans.values()]
@@ -330,10 +361,11 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
         new_source = new_source[:start] + new_source[end:]
 
     # Add use statement for main item
-    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
+    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path, main_cfg)
     # Add use statements for deps still referenced in this file
     for name in deps_still_referenced:
-        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
+        cfg = dep_cfgs.get(name, "")
+        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path, cfg)
     # Add use statements for moved extern types still referenced in source.
     # Use dest_module_path for now — main() may fix these if the extern type
     # ends up in a different module within the same crate.
@@ -583,14 +615,20 @@ def main():
 
     # Per-name uniqueness check
     canonical_defs = {}  # name -> canonical text
+    conflicting_names = set()
     for name, texts in all_collected.items():
         unique = list(dict.fromkeys(texts))
         if len(unique) > 1:
-            print(f"ERROR: Multiple different definitions for '{name}'!\n")
+            print(f"SKIP: Multiple different definitions for '{name}' (conflicting):")
             for i, d in enumerate(unique):
-                print(f"--- {name} definition {i+1} ---\n{d}\n")
-            sys.exit(1)
+                print(f"  definition {i+1}: {d[:60]}...")
+            conflicting_names.add(name)
+            continue
         canonical_defs[name] = unique[0]
+
+    if item_name in conflicting_names:
+        print(f"ERROR: Main item '{item_name}' has conflicting definitions!")
+        sys.exit(1)
 
     # Write to destination: deps first (topological order approximation), main last
     dest_file.parent.mkdir(parents=True, exist_ok=True)
