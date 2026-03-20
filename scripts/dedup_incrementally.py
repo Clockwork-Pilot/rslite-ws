@@ -42,10 +42,9 @@ def main():
         sys.exit(1)
 
     parts = pending.split()
-    crate_name, type_name, rs_file = parts[0], parts[1], parts[2]
+    use_crate_name, type_name, rs_file = parts[0], parts[1], parts[2]
 
     # deduplicate_struct.py: <crate_name> <ItemName> <dest_file> <search_dir>
-    use_crate_name = crate_name.replace("-", "_")
     dest_file = base_dir / rs_file
     search_dir = base_dir
 

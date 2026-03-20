@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_rust
+from crates_common import import_crate_name
 
 parser = Parser()
 parser.language = Language(tree_sitter_rust.language())
@@ -110,6 +111,61 @@ def collect_local_deps(source_code, item_node, top_level_items, visited=None):
     return result
 
 
+def find_foreign_opaque_types(source_code):
+    """Find opaque extern type declarations inside extern blocks (pub type Foo;).
+    tree-sitter-rust parses these as ERROR nodes inside foreign_mod_item.
+    Returns dict: name -> {"text": 'extern "C" { pub type Foo; }', "start": N, "end": N}.
+    """
+    tree = parser.parse(bytes(source_code, "utf8"))
+    result = {}
+
+    def check_error_node(item, next_sibling=None):
+        """Check if an ERROR node represents a 'pub type Foo;' foreign opaque type."""
+        has_type_kw = any(c.type == "type" for c in item.children)
+        id_node = next((c for c in item.children if c.type == "identifier"), None)
+        if not has_type_kw or not id_node:
+            return
+        name = source_code[id_node.start_byte:id_node.end_byte]
+        start = item.start_byte
+        end = item.end_byte
+        # Include the semicolon (empty_statement) if separate
+        if next_sibling and next_sibling.type == "empty_statement":
+            end = next_sibling.end_byte
+        # If the ERROR contains its own semicolon, the end already covers it
+        # Include trailing newline in the span to avoid blank lines
+        while end < len(source_code) and source_code[end] == "\n":
+            end += 1
+        decl = source_code[start:end].strip()
+        result[name] = {
+            "text": f'extern "C" {{\n    {decl}\n}}',
+            "start": start,
+            "end": end,
+        }
+
+    def walk(node):
+        if node.type == "foreign_mod_item":
+            for child in node.children:
+                if child.type == "declaration_list":
+                    children = list(child.children)
+                    for i, item in enumerate(children):
+                        next_sib = children[i + 1] if i + 1 < len(children) else None
+                        if item.type == "ERROR":
+                            check_error_node(item, next_sib)
+                        # tree-sitter may group the last 'pub type Foo;' with a
+                        # following 'fn ...' into a function_signature_item — check
+                        # for ERROR children inside those too.
+                        elif item.type == "function_signature_item":
+                            for sub in item.children:
+                                if sub.type == "ERROR":
+                                    check_error_node(sub)
+            return  # don't recurse into foreign_mod_item children
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
+    return result
+
+
 def find_use_stmts_for_names(source_code, names):
     """
     Find use_declaration texts in source_code that import any of the given names.
@@ -210,21 +266,14 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
     # Keeping local copies alongside the dest version causes type conflicts.
     deps_still_referenced = {name for name in dep_nodes if is_name_referenced(stripped, name)}
 
-    # Remove ALL candidates from source (main + all deps)
+    # Spans to remove from source (struct/type items) — byte offsets into original source.
+    # Extern opaque type spans will be added below before applying all at once.
     spans_to_remove = [(main_start, main_end)] + [(s, e) for _, s, e in dep_spans.values()]
-    new_source = source
-    for start, end in sorted(spans_to_remove, key=lambda x: x[0], reverse=True):
-        new_source = new_source[:start] + new_source[end:]
 
     # Use `crate::` if source and dest are in the same crate, else the external crate name.
+    # Crate names in use statements use underscores (not hyphens).
     source_crate_root = find_crate_root(file_path)
-    use_prefix = "crate" if source_crate_root == dest_crate_root else crate_name
-
-    # Add use statement for main item
-    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
-    # Add use statements for deps still referenced in this file
-    for name in deps_still_referenced:
-        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
+    use_prefix = "crate" if source_crate_root == dest_crate_root else import_crate_name(crate_name)
 
     # Collect everything that goes to destination: main + all deps (kept or not)
     extracted = {item_name: main_text}
@@ -242,7 +291,46 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
     local_names = set(dep_nodes.keys()) | {item_name}
     external_refs = all_refs - local_names
 
-    own_crate_pattern = re.compile(r'^\s*use\s+' + re.escape(crate_name) + r'::')
+    # Collect extern opaque types (pub type Foo; inside extern blocks) referenced
+    # by the moved items. These must be MOVED (not copied) to avoid type incompatibility
+    # across crates — both crates must share the same extern type instance.
+    extern_opaque = find_foreign_opaque_types(source)
+    extern_names_moved = set()
+    for name in external_refs:
+        if name in extern_opaque and name not in extracted:
+            info = extern_opaque[name]
+            extracted[name] = info["text"]
+            extern_names_moved.add(name)
+
+    # Re-apply ALL removals from original source (struct/type spans + extern opaque spans)
+    # in one pass, since all byte offsets are relative to the original source.
+    all_remove_spans = list(spans_to_remove)  # struct/type spans already collected
+    for name in extern_names_moved:
+        info = extern_opaque[name]
+        all_remove_spans.append((info["start"], info["end"]))
+    # Also remove extern opaque declarations for items that are being moved as real defs,
+    # otherwise the local extern type shadows the imported struct.
+    for name in local_names:
+        if name in extern_opaque:
+            info = extern_opaque[name]
+            all_remove_spans.append((info["start"], info["end"]))
+    new_source = source
+    for start, end in sorted(all_remove_spans, key=lambda x: x[0], reverse=True):
+        new_source = new_source[:start] + new_source[end:]
+
+    # Add use statement for main item
+    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
+    # Add use statements for deps still referenced in this file
+    for name in deps_still_referenced:
+        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
+    # Add use statements for moved extern types still referenced in source.
+    # Use dest_module_path for now — main() may fix these if the extern type
+    # ends up in a different module within the same crate.
+    for name in extern_names_moved:
+        if is_name_referenced(new_source, name):
+            new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
+
+    own_crate_pattern = re.compile(r'^\s*use\s+' + re.escape(import_crate_name(crate_name)) + r'::')
     dest_text = " ".join(extracted.values())
     use_stmts = [
         stmt
@@ -424,6 +512,13 @@ def main():
         print("No definitions found.")
         return
 
+    # If a name has both a real definition and extern opaque declarations,
+    # discard the opaque ones (real definition takes precedence over forward decl).
+    for name in list(all_collected.keys()):
+        real = [t for t in all_collected[name] if not t.startswith('extern "C" {')]
+        if real:
+            all_collected[name] = real
+
     # Per-name uniqueness check
     canonical_defs = {}  # name -> canonical text
     for name, texts in all_collected.items():
@@ -445,6 +540,50 @@ def main():
     # Deduplicate collected use statements, skip ones already in dest
     unique_use_stmts = list(dict.fromkeys(s.strip() for s in all_use_stmts))
 
+    existing_extern_types = set(find_foreign_opaque_types(existing).keys())
+
+    # For deps (not the main item), check if they already exist in another module
+    # of the same crate. If so, use `use crate::<module>::<name>;` instead of
+    # writing a duplicate definition (avoids incompatible type errors).
+    # Track redirected names so we can fix use statements in source files.
+    dest_crate_root_resolved = find_crate_root(dest_file)
+    extern_redirects = {}  # name -> correct module_path (within the crate)
+    if dest_crate_root_resolved:
+        # Build a cache of what's defined in each crate file
+        crate_files = {}
+        for path in sorted(dest_crate_root_resolved.rglob("*.rs")):
+            if path.resolve() == dest_file:
+                continue
+            try:
+                file_src = path.read_text(encoding="utf8")
+            except OSError:
+                continue
+            crate_files[path] = file_src
+
+        for name in list(canonical_defs.keys()):
+            if name == item_name:
+                continue  # never redirect the main item
+            is_extern = canonical_defs[name].startswith('extern "C" {')
+            found_in = None
+            for path, file_src in crate_files.items():
+                if is_extern:
+                    if name in find_foreign_opaque_types(file_src):
+                        found_in = path
+                        break
+                else:
+                    if find_item_nodes(file_src, name):
+                        found_in = path
+                        break
+            if found_in:
+                mod_path = module_path_from_file(found_in, base_dir)
+                use_stmt = f"use crate::{mod_path}::{name};"
+                unique_use_stmts.append(use_stmt)
+                del canonical_defs[name]
+                write_order = [n for n in write_order if n != name]
+                extern_redirects[name] = mod_path
+                label = "extern type" if is_extern else "type"
+                print(f"  {label} '{name}' already in crate → {use_stmt}")
+
     with open(dest_file, "a", encoding="utf8") as f:
         for stmt in unique_use_stmts:
             if stmt not in existing:
@@ -454,7 +593,7 @@ def main():
 
         for name in write_order:
             text = canonical_defs[name]
-            if find_item_nodes(existing, name):  # check for actual definition, not just usage
+            if find_item_nodes(existing, name) or name in existing_extern_types:
                 print(f"Already exists in destination: {name}")
             else:
                 f.write("\n")
@@ -465,6 +604,48 @@ def main():
 
     cleanup_redundant_use_stmts(dest_file)
     resolve_missing_imports(dest_file, search_dirs, base_dir)
+
+    # Fix source file use statements for extern types that got redirected to a
+    # different module within the crate. E.g., source files may have gotten
+    # `use ext_fts3_fts3::fts3_table::sqlite3;` but the type lives in fts3_cursor.
+    if extern_redirects:
+        use_crate = import_crate_name(crate_name)
+        wrong_mod = dest_module_path
+        for search_dir in search_dirs:
+            for path in sorted(search_dir.rglob("*.rs")):
+                if path.resolve() == dest_file:
+                    continue
+                try:
+                    src = path.read_text(encoding="utf8")
+                except OSError:
+                    continue
+                changed = False
+                for name, correct_mod in extern_redirects.items():
+                    wrong = f"use {use_crate}::{wrong_mod}::{name};"
+                    right = f"use {use_crate}::{correct_mod}::{name};"
+                    if wrong in src:
+                        src = src.replace(wrong, right)
+                        changed = True
+                if changed:
+                    path.write_text(src, encoding="utf8")
+
+    # If any extern opaque types were written, ensure the crate's lib.rs has
+    # #![feature(extern_types)] since those declarations require it.
+    wrote_extern_types = any(
+        t.startswith('extern "C" {')
+        for texts in all_collected.values()
+        for t in texts
+    )
+    if wrote_extern_types:
+        crate_root = find_crate_root(dest_file)
+        if crate_root:
+            lib_rs = crate_root / "src" / "lib.rs"
+            if lib_rs.exists():
+                lib_src = lib_rs.read_text(encoding="utf8")
+                feature = "#![feature(extern_types)]"
+                if feature not in lib_src:
+                    lib_rs.write_text(feature + "\n" + lib_src, encoding="utf8")
+                    print(f"  added {feature} to {lib_rs}")
 
 
 if __name__ == "__main__":

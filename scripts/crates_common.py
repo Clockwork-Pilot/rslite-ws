@@ -7,6 +7,11 @@ def file_stem_to_crate_name(file_path):
     return Path(file_path).with_suffix("").as_posix().replace("/", "-").replace("src", "sql")
 
 
+def import_crate_name(crate_name):
+    """Convert crate name to Rust import name (hyphens → underscores)."""
+    return crate_name.replace("-", "_")
+
+
 def rs_file_name_from_type_name(name):
     """Return snake_case filename for a type name.
     If already snake_case, returns as-is. CamelCase is converted to snake_case.
