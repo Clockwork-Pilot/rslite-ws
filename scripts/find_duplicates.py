@@ -99,8 +99,7 @@ def main():
                 for i, f in enumerate(info["files"])
             ],
         }
-        if name in c_index:
-            entry["c_decl_file"] = c_index[name]
+        entry["c_decl_file"] = c_index.get(name, "sqlite3-unmatched.h")
         names[name] = entry
 
     print(json.dumps({"names": names}, indent=2))
