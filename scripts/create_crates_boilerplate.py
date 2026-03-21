@@ -8,7 +8,7 @@ SCRIPTS_DIR = Path(__file__).parent
 
 
 def load_cargo_toml_template(crate_name):
-    """Load Cargo.toml template and substitute crate name."""
+    """Load Cargo.toml template and substitute crate name using safe string replacement."""
     template_file = SCRIPTS_DIR / "cargo-toml-template.txt"
     if not template_file.exists():
         # Fallback to minimal template
@@ -20,7 +20,8 @@ edition = "2021"
 """
 
     template_content = template_file.read_text(encoding="utf8")
-    return template_content.format(crate_name=crate_name)
+    # Replace {{crate_name}} placeholders
+    return template_content.replace("{{crate_name}}", crate_name)
 
 
 def main():

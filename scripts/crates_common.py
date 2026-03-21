@@ -2,6 +2,14 @@ import json
 import re
 from pathlib import Path
 
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    try:
+        import tomli as tomllib  # Fallback for older Python
+    except ImportError:
+        tomllib = None  # Will use regex fallback
+
 
 def file_stem_to_crate_name(file_path):
     """Derive dash-case crate name from a file path (strips extension, camelCase → dash-case)."""
@@ -30,6 +38,57 @@ def rs_file_name_from_type_name(name):
     s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     s = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", s)
     return s.lower()
+
+
+def add_workspace_dependency(cargo_toml_path, crate_name_dash):
+    """Add a workspace crate to [dependencies] in Cargo.toml.
+
+    Uses tomllib to verify TOML structure, regex for safe insertion.
+
+    Args:
+        cargo_toml_path: Path to the crate's Cargo.toml
+        crate_name_dash: Crate name in dash-case (e.g., 'sql-where-int')
+
+    Returns:
+        True if added, False if already exists
+    """
+    cargo_path = Path(cargo_toml_path)
+    if not cargo_path.exists():
+        return False
+
+    content = cargo_path.read_text(encoding="utf8")
+
+    # Use tomllib to verify it's valid TOML and check for existing dependency
+    if tomllib:
+        try:
+            import io
+            data = tomllib.loads(content)
+            if "dependencies" in data and crate_name_dash in data["dependencies"]:
+                return False  # Already exists
+        except Exception:
+            pass  # Continue with regex fallback
+
+    # Check if dependency already exists via regex
+    if re.search(rf'^\s*{re.escape(crate_name_dash)}\s*=', content, re.MULTILINE):
+        return False
+
+    # Ensure [dependencies] section exists
+    if '[dependencies]' not in content:
+        content += '\n[dependencies]\n'
+
+    # Add dependency with relative path
+    dep_line = f'{crate_name_dash} = {{ workspace = true }}\n'
+
+    # Insert right after [dependencies] line
+    content = re.sub(
+        r'(\[dependencies\]\n)',
+        rf'\1{dep_line}',
+        content,
+        count=1
+    )
+
+    cargo_path.write_text(content, encoding="utf8")
+    return True
 
 
 def load_crate_requirements():

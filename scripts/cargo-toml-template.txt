@@ -1,11 +1,10 @@
 [package]
-name = "{crate_name}"
+name = "{{crate_name}}"
 version = "0.1.0"
 edition = "2021"
-description = "{crate_name}"
+description = "{{crate_name}}"
 publish = false
 
 [dependencies]
-c2rust-bitfields = "0.22.1"
-libc = "0.2"
-
+c2rust-bitfields = { workspace = true }
+libc = { workspace = true }

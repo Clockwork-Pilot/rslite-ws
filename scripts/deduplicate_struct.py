@@ -4,7 +4,13 @@ import sys
 from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_rust
-from crates_common import detect_required_features, analyze_conflicting_definitions, format_conflict_report
+from crates_common import (
+    detect_required_features,
+    analyze_conflicting_definitions,
+    format_conflict_report,
+    add_workspace_dependency,
+    import_crate_name,
+)
 from crates_common import import_crate_name
 
 parser = Parser()
@@ -236,11 +242,15 @@ def extract_cfg_attrs(text):
 # -------------------------------
 # Use statement handling
 # -------------------------------
-def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_attrs=""):
+def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_attrs="", pub_use=False):
+    # Use absolute path (::crate_name) for external crates to avoid ambiguity
+    # when a local name shadows the crate name (e.g. extern type sqlite3 vs crate sqlite3).
+    effective_prefix = use_prefix if use_prefix == "crate" else f"::{use_prefix}"
+    vis = "pub use" if pub_use else "use"
     if module_path:
-        use_stmt = f"use {use_prefix}::{module_path}::{item_name};"
+        use_stmt = f"{vis} {effective_prefix}::{module_path}::{item_name};"
     else:
-        use_stmt = f"use {use_prefix}::{item_name};"
+        use_stmt = f"{vis} {effective_prefix}::{item_name};"
 
     # Build full statement with cfg guards if needed
     full_stmt = use_stmt
@@ -249,13 +259,23 @@ def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_at
 
     if full_stmt in source_code or use_stmt in source_code:
         return source_code
+    # Also skip if already re-exported (pub use) or imported (use) under either visibility
+    alt_vis = "use" if pub_use else "pub use"
+    alt_stmt = use_stmt.replace(f"{vis} ", f"{alt_vis} ", 1)
+    if alt_stmt in source_code:
+        return source_code
 
     lines = source_code.splitlines()
     insert_idx = 0
+    min_insert = 0
 
     for i, line in enumerate(lines):
-        if line.strip().startswith("use "):
+        if line.strip().startswith("#!["):
+            min_insert = i + 1
+        elif line.strip().startswith("use "):
             insert_idx = i + 1
+
+    insert_idx = max(insert_idx, min_insert)
 
     # Insert cfg lines first, then use line
     if cfg_attrs:
@@ -394,18 +414,26 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
     for start, end in sorted(all_remove_spans, key=lambda x: x[0], reverse=True):
         new_source = new_source[:start] + new_source[end:]
 
+    # If cross-crate, ensure the dependency is declared in the source crate's Cargo.toml
+    if use_prefix != "crate" and source_crate_root:
+        if add_workspace_dependency(source_crate_root / "Cargo.toml", crate_name):
+            print(f"  added dep '{crate_name}' to {source_crate_root / 'Cargo.toml'}")
+
+    # Use pub use for cross-crate replacements so downstream importers still work.
+    replacing_pub_use = use_prefix != "crate"
+
     # Add use statement for main item
-    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path, main_cfg)
+    new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path, main_cfg, pub_use=replacing_pub_use)
     # Add use statements for deps still referenced in this file
     for name in deps_still_referenced:
         cfg = dep_cfgs.get(name, "")
-        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path, cfg)
+        new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path, cfg, pub_use=replacing_pub_use)
     # Add use statements for moved extern types still referenced in source.
     # Use dest_module_path for now — main() may fix these if the extern type
     # ends up in a different module within the same crate.
     for name in extern_names_moved:
         if is_name_referenced(new_source, name):
-            new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path)
+            new_source = ensure_use_statement(new_source, name, use_prefix, dest_module_path, pub_use=replacing_pub_use)
 
     own_crate_pattern = re.compile(r'^\s*use\s+' + re.escape(import_crate_name(crate_name)) + r'::')
     dest_text = " ".join(extracted.values())
@@ -610,7 +638,11 @@ def main():
                     new_source = new_source[:info["start"]] + new_source[info["end"]:]
                 source_crate_root = find_crate_root(path)
                 use_prefix = "crate" if source_crate_root == dest_crate_root else import_crate_name(crate_name)
-                new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path)
+                replacing_pub_use = use_prefix != "crate"
+                if replacing_pub_use and source_crate_root:
+                    if add_workspace_dependency(source_crate_root / "Cargo.toml", crate_name):
+                        print(f"  added dep '{crate_name}' to {source_crate_root / 'Cargo.toml'}")
+                new_source = ensure_use_statement(new_source, item_name, use_prefix, dest_module_path, pub_use=replacing_pub_use)
                 path.write_text(new_source, encoding="utf8")
                 cleanup_redundant_use_stmts(path)
                 print(f"Updated: {path}")
@@ -810,6 +842,7 @@ def main():
                 if changed:
                     path.write_text(src, encoding="utf8")
 
+
     # Detect and apply crate requirements based on generated code content
     all_src = "\n".join(
         t for texts in all_collected.values() for t in texts
@@ -818,6 +851,19 @@ def main():
 
     crate_root = find_crate_root(dest_file)
     if crate_root:
+        # Also scan all existing files in the crate for additional requirements
+        # (e.g., extern types in other modules that weren't in all_src)
+        for rs_file in sorted(crate_root.rglob("*.rs")):
+            try:
+                existing_content = rs_file.read_text(encoding="utf8")
+                existing_requirements = detect_required_features(existing_content)
+                # Merge requirements
+                for feature in existing_requirements.get("features", []):
+                    if feature not in requirements.get("features", []):
+                        requirements.setdefault("features", []).append(feature)
+            except OSError:
+                continue
+
         lib_rs = crate_root / "src" / "lib.rs"
         if lib_rs.exists():
             lib_src = lib_rs.read_text(encoding="utf8")

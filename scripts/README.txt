@@ -4,6 +4,7 @@ cd scripts
 # Prerequisites
 pip install tree_sitter
 pip install tree-sitter-rust
+pip install tomli
 
 # List types dups
 python find_duplicates.py ~/git/sqlite-no-amalgam ../crust-sqlite/src/ > /tmp/dupes2.json
