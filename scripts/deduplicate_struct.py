@@ -767,6 +767,13 @@ def main():
                 f.write(stmt + "\n")
                 existing += stmt + "\n"
                 print(f"  use stmt: {stmt}")
+                # Ensure the dest crate declares this external crate as a dependency
+                m = re.match(r'\s*(?:pub\s+)?use\s+(?:::)?(\w+)::', stmt)
+                if m:
+                    dep = m.group(1)
+                    if dep not in ("crate", "self", "super") and dest_crate_root:
+                        if add_workspace_dependency(dest_crate_root / "Cargo.toml", dep):
+                            print(f"  added dep '{dep}' to {dest_crate_root / 'Cargo.toml'}")
 
         names_written = []
         for name in write_order:

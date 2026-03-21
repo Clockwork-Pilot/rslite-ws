@@ -4,7 +4,7 @@ cd scripts
 # Prerequisites
 pip install tree_sitter
 pip install tree-sitter-rust
-pip install tomli
+pip install tomlkit
 
 # List types dups
 python find_duplicates.py ~/git/sqlite-no-amalgam ../crust-sqlite/src/ > /tmp/dupes2.json
@@ -22,7 +22,7 @@ python show_one_of_many_dupes.py --deduplicate-type /tmp/dupes2.json
 python dedup_incrementally.py --build --suppress-build-warnings --explicit "sql_btree BtShared crates/sql-btree/src/lib.rs" /tmp/dupes2.json progress.txt ../crust-sqlite/
 
 # Non Stop: Dedup & build in a loop one by one, commit successfull attempts
-while (cd ../crust-sqlite && git checkout -- src crates) && (python dedup_incrementally.py --build --suppress-build-warnings /tmp/dupes2.json progress.txt ../crust-sqlite/ && cd ../crust-sqlite && git add src crates && git commit -m "$(tail -n 1 ../scripts/progress.txt)" ) || true; do :; done
+sh non-stop.sh
 
 # DRY RUN
 (cd ../crust-sqlite && git checkout -- src crates) && while python dedup_incrementally.py --skip-errors /tmp/dupes2.json progress.txt ../crust-sqlite/ && (cd ../crust-sqlite && cargo build && git add -- src crates || echo "FAILED: $(tail -n 1 ../scripts/progress.txt)" ); do :; done
