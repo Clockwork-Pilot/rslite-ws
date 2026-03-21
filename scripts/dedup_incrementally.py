@@ -86,7 +86,7 @@ def main():
             if suppress_build_warnings:
                 env = os.environ.copy()
                 env["RUSTFLAGS"] = "-Awarnings"
-            build_result = subprocess.run(["cargo", "build"], cwd=base_dir, env=env)
+            build_result = subprocess.run(["cargo", "build", "-j", "8"], cwd=base_dir, env=env)
             if build_result.returncode != 0:
                 subprocess.run(["git", "checkout", "src", "crates"], cwd=base_dir)
                 f.write(pending + " BUILD_FAILED\n")

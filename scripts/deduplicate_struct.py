@@ -259,9 +259,11 @@ def ensure_use_statement(source_code, item_name, use_prefix, module_path, cfg_at
 
     if full_stmt in source_code or use_stmt in source_code:
         return source_code
-    # Also skip if already re-exported (pub use) or imported (use) under either visibility
+    # If we need pub use but only a private use exists, upgrade it
     alt_vis = "use" if pub_use else "pub use"
     alt_stmt = use_stmt.replace(f"{vis} ", f"{alt_vis} ", 1)
+    if pub_use and alt_stmt in source_code:
+        return source_code.replace(alt_stmt, use_stmt, 1)
     if alt_stmt in source_code:
         return source_code
 
