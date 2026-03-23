@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from pathlib import Path
+import tomlkit
 from tree_sitter import Language, Parser
 import tree_sitter_rust
 from crates_common import (
@@ -9,9 +10,9 @@ from crates_common import (
     analyze_conflicting_definitions,
     format_conflict_report,
     add_workspace_dependency,
+    dep_crate_depends_on,
     import_crate_name,
 )
-from crates_common import import_crate_name
 
 parser = Parser()
 parser.language = Language(tree_sitter_rust.language())
@@ -19,7 +20,7 @@ parser.language = Language(tree_sitter_rust.language())
 # -------------------------------
 # AST helpers
 # -------------------------------
-SUPPORTED_NODE_TYPES = {"struct_item", "type_item", "enum_item"}
+SUPPORTED_NODE_TYPES = {"struct_item", "type_item", "enum_item", "union_item"}
 
 
 def find_item_nodes(source_code, item_name):
@@ -305,11 +306,16 @@ def module_path_from_file(file_path, base_dir):
 
     parts = list(rel_path.with_suffix("").parts)
 
-    # If the first part is 'src', it's a module declared in lib.rs, so keep it
-    # Otherwise, strip 'src' if it appears (e.g., in crates subdirectories)
+    # Strip to module-relative path.
+    # Case 1: base_dir is crate root → rel_path starts with "src/"
+    #   src/lib.rs  → crate root → ""
+    #   src/foo.rs  → module "src::foo" (for workspace-root base_dir)
+    # Case 2: base_dir is workspace root → crates/x/src/lib.rs → strip up to src/
     if parts and parts[0] == "src":
-        # Keep src as part of the module path
-        pass
+        # src/lib.rs or src/mod.rs at crate root → crate root, module path ""
+        if len(parts) == 2 and parts[1] in ("mod", "lib"):
+            return ""
+        # src/foo.rs → keep "src" as part of path (workspace-root base_dir case)
     else:
         # Look for 'src' directory and use parts after it
         try:
@@ -334,7 +340,7 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
 
     nodes = find_item_nodes(source, item_name)
     if not nodes:
-        return None, [], source
+        return None, {}, [], source
 
     main_node = nodes[0]
     top_level = find_all_top_level_items(source)
@@ -353,6 +359,11 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
         text, start, end = extract_item_with_attributes(source, node)
         dep_spans[name] = (text, start, end)
         dep_cfgs[name] = extract_cfg_attrs(text)
+
+    # Compute 1-based line numbers from byte offsets (before file is modified)
+    line_numbers = {item_name: source[:main_start].count('\n') + 1}
+    for dep_name, (_, dep_start, _) in dep_spans.items():
+        line_numbers[dep_name] = source[:dep_start].count('\n') + 1
 
     # Build a source with ALL candidates removed to check residual references
     all_spans = [(main_start, main_end)] + [(s, e) for _, s, e in dep_spans.values()]
@@ -451,7 +462,7 @@ def process_file(file_path, item_name, crate_name, dest_module_path, dest_crate_
     if use_stmts:
         print(f"  Carrying use statements: {len(use_stmts)}")
 
-    return extracted, use_stmts, new_source
+    return extracted, line_numbers, use_stmts, new_source
 
 
 # -------------------------------
@@ -495,6 +506,16 @@ def find_crate_root(file_path):
             return path
         path = path.parent
     return None
+
+
+def _crate_name_for_root(crate_root):
+    """Return dash-case crate name for a crate root directory."""
+    cargo_path = crate_root / "Cargo.toml"
+    try:
+        doc = tomlkit.parse(cargo_path.read_text(encoding="utf8"))
+        return doc.get("package", {}).get("name", "").replace("_", "-")
+    except Exception:
+        return ""
 
 
 def resolve_missing_imports(dest_file, search_dirs, base_dir):
@@ -578,6 +599,93 @@ def resolve_missing_imports(dest_file, search_dirs, base_dir):
 
 
 # -------------------------------
+# Cyclic dep resolution
+# -------------------------------
+def build_type_index(search_dirs, dest_file):
+    """Scan all .rs files once and return a type index.
+
+    Returns dict: type_name -> list of (path, crate_root, crate_dash)
+    Only includes types defined by struct/type/enum items (not use re-exports).
+    """
+    dest_resolved = dest_file.resolve()
+    index = {}  # type_name -> [(path, crate_root, crate_dash)]
+    for sd in search_dirs:
+        for path in sorted(sd.rglob("*.rs")):
+            if path.resolve() == dest_resolved:
+                continue
+            try:
+                fsrc = path.read_text(encoding="utf8")
+            except OSError:
+                continue
+            items = find_all_top_level_items(fsrc)
+            if not items:
+                continue
+            crate_root = find_crate_root(path)
+            crate_dash = _crate_name_for_root(crate_root) if crate_root else ""
+            for type_name in items:
+                index.setdefault(type_name, []).append((path, crate_root, crate_dash))
+    return index
+
+
+def resolve_cyclic_type(type_name, cyclic_dep, type_index, dest_file, dest_module_path,
+                        dest_crate_root, dest_crate_dash):
+    """Resolve a type that cannot be imported from a cyclic crate.
+
+    Uses a pre-built type_index (from build_type_index) for O(1) lookup
+    instead of scanning all files on each call.
+
+    Strategy:
+    1. If the type lives in a non-cyclic third crate, return a corrected use stmt
+       pointing there directly (no files modified).
+    2. If the type is only in the cyclic crate itself, move it down to dest via
+       process_file so the source crate gets a re-export instead.
+
+    Returns one of:
+      ("use_stmt",  use_stmt_str)          — import from a non-cyclic crate
+      ("moved",     extracted, use_stmts)  — moved from cyclic crate to dest
+      ("in_dest",   None)                  — type already lives in dest crate
+      ("not_found", None)                  — not found anywhere
+    """
+    cyclic_dep_dash = cyclic_dep.replace("_", "-")
+    found_in_cyclic = []  # (path, crate_root, crate_dash)
+
+    for path, other_crate_root, other_crate_dash in type_index.get(type_name, []):
+        if other_crate_root == dest_crate_root:
+            return ("in_dest", None)
+
+        if other_crate_dash == cyclic_dep_dash:
+            found_in_cyclic.append((path, other_crate_root, other_crate_dash))
+            continue
+
+        # Found in a third crate — check it doesn't also create a cycle
+        if dest_crate_dash and other_crate_dash and dep_crate_depends_on(
+            other_crate_dash, dest_crate_dash, dest_crate_root / "Cargo.toml"
+        ):
+            continue  # Also cyclic, keep searching
+
+        # Non-cyclic location found — generate a direct use stmt
+        ext_import = other_crate_dash.replace("-", "_")
+        mod_path = module_path_from_file(path, other_crate_root) if other_crate_root else ""
+        use_stmt = (f"use ::{ext_import}::{mod_path}::{type_name};"
+                    if mod_path else f"use ::{ext_import}::{type_name};")
+        return ("use_stmt", use_stmt)
+
+    # Only found in the cyclic crate — move it down to dest
+    if found_in_cyclic:
+        path, other_crate_root, other_crate_dash = found_in_cyclic[0]
+        crate_name = other_crate_dash.replace("-", "_")
+        extracted, _line_numbers, use_stmts, new_source = process_file(
+            path, type_name, crate_name, dest_module_path, dest_crate_root
+        )
+        if extracted:
+            path.write_text(new_source, encoding="utf8")
+            print(f"  moved '{type_name}' from {path} (resolved cyclic dep)")
+        return ("moved", extracted, use_stmts)
+
+    return ("not_found", None)
+
+
+# -------------------------------
 # Main logic
 # -------------------------------
 def main():
@@ -650,7 +758,11 @@ def main():
                 print(f"Updated: {path}")
         return
 
-    # name -> list of text variants collected across all source files
+    def _normalize_unnamed(text):
+        """Replace C2RustUnnamed_N suffixes with a stable placeholder for comparison."""
+        return re.sub(r'\bC2RustUnnamed_\d+\b', 'C2RustUnnamed_X', text)
+
+    # name -> list of (text, source_path, line_no) collected across all source files
     all_collected = {}
     all_use_stmts = []  # use statements to carry to destination
 
@@ -658,11 +770,12 @@ def main():
         for path in sorted(search_dir.rglob("*.rs")):
             if path == dest_file:
                 continue  # dest is the canonical home — don't strip it as a source
-            extracted, use_stmts, new_source = process_file(path, item_name, crate_name, dest_module_path, dest_crate_root)
+            extracted, line_numbers, use_stmts, new_source = process_file(path, item_name, crate_name, dest_module_path, dest_crate_root)
 
             if extracted:
                 for name, text in extracted.items():
-                    all_collected.setdefault(name, []).append(text.strip())
+                    line_no = line_numbers.get(name)
+                    all_collected.setdefault(name, []).append((text.strip(), path, line_no))
                 all_use_stmts.extend(use_stmts)
 
                 with open(path, "w", encoding="utf8") as f:
@@ -677,28 +790,73 @@ def main():
     # If a name has both a real definition and extern opaque declarations,
     # discard the opaque ones (real definition takes precedence over forward decl).
     for name in list(all_collected.keys()):
-        real = [t for t in all_collected[name] if not t.startswith('extern "C" {')]
+        real = [(t, p, ln) for t, p, ln in all_collected[name] if not t.startswith('extern "C" {')]
         if real:
             all_collected[name] = real
 
     # Per-name uniqueness check
-    canonical_defs = {}  # name -> canonical text
+    canonical_defs = {}   # name -> canonical text
+    canonical_source = {} # name -> source Path the canonical text came from
     conflicting_names = set()
-    conflicting_with_sources = {}  # name -> [(file, definition), ...]
+    conflicting_with_sources = {}  # name -> [(file:line, definition), ...]
 
-    for name, texts in all_collected.items():
-        unique = list(dict.fromkeys(texts))
+    for name, entries in all_collected.items():
+        unique = list(dict.fromkeys(t for t, _, _ln in entries))
         if len(unique) > 1:
+            # Check if the only differences are C2RustUnnamed_N numbering (c2rust artefact).
+            # If so, treat as identical and pick the first variant.
+            normalized = list(dict.fromkeys(_normalize_unnamed(t) for t in unique))
+            if len(normalized) == 1:
+                canonical_defs[name] = unique[0]
+                canonical_source[name] = next(p for t, p, _ln in entries if t == unique[0])
+                continue
+            # Map each unique definition text to its first (path, line_no)
+            text_to_loc = {}
+            for text, path, line_no in entries:
+                if text not in text_to_loc:
+                    text_to_loc[text] = (path, line_no)
+
             print(f"SKIP: Multiple different definitions for '{name}' (conflicting):")
-            for i, d in enumerate(unique):
-                print(f"  definition {i+1}: {d[:60]}...")
-            conflicting_names.add(name)
-            # Store for detailed analysis
-            conflicting_with_sources[name] = [
-                (f"source_{i}", texts[i]) for i in range(len(unique))
-            ]
+            conflicting_with_sources[name] = []
+            for i, def_text in enumerate(unique):
+                file_path, line_no = text_to_loc.get(def_text, (None, None))
+                if file_path is not None:
+                    loc = f"{file_path}:{line_no}" if line_no else str(file_path)
+                else:
+                    loc = f"source_{i}"
+                print(f"  definition {i+1} ({loc}): {def_text[:60]}...")
+                conflicting_with_sources[name].append((loc, def_text))
             continue
         canonical_defs[name] = unique[0]
+        canonical_source[name] = entries[0][1]
+
+    # Debug: scan canonical_defs for conflicting C2RustUnnamed refs
+    for _cname, _ctext in canonical_defs.items():
+        for _u in re.findall(r'\bC2RustUnnamed_\d+\b', _ctext):
+            if _u in conflicting_names:
+                print(f"  DEBUG-PRE: '{_cname}' refs conflicting '{_u}' (src={canonical_source.get(_cname)})")
+
+    # Second pass: resolve C2RustUnnamed_* conflicts that are needed by chosen canonical defs.
+    # When struct X (from file A) uses C2RustUnnamed_3 but that name conflicts across files,
+    # use the definition of C2RustUnnamed_3 from file A (the same source as struct X).
+    for cname, ctext in list(canonical_defs.items()):
+        for unnamed in re.findall(r'\bC2RustUnnamed_\d+\b', ctext):
+            if unnamed not in conflicting_names:
+                continue  # already resolved or not conflicting
+            src_path = canonical_source.get(cname)
+            if src_path is None:
+                print(f"  DEBUG second-pass: no src_path for '{cname}', can't resolve '{unnamed}'")
+                continue
+            matching = [(t, p, ln) for t, p, ln in all_collected.get(unnamed, []) if p == src_path]
+            if matching:
+                canonical_defs[unnamed] = matching[0][0]
+                canonical_source[unnamed] = src_path
+                conflicting_names.discard(unnamed)
+                if unnamed in conflicting_with_sources:
+                    del conflicting_with_sources[unnamed]
+            else:
+                paths_available = [str(p) for _, p, _ln in all_collected.get(unnamed, [])]
+                print(f"  DEBUG second-pass: '{unnamed}' not in src {src_path} for '{cname}'; available from: {paths_available[:3]}")
 
     # If there are conflicts, generate a detailed report
     if conflicting_with_sources:
@@ -719,6 +877,54 @@ def main():
 
     # Deduplicate collected use statements, skip ones already in dest
     unique_use_stmts = list(dict.fromkeys(s.strip() for s in all_use_stmts))
+
+    # Resolve cyclic use stmts: move types from cyclic crates down into dest
+    dest_crate_dash = ""
+    if dest_crate_root:
+        dest_cargo = dest_crate_root / "Cargo.toml"
+        if dest_cargo.exists():
+            try:
+                _doc = tomlkit.parse(dest_cargo.read_text(encoding="utf8"))
+                dest_crate_dash = _doc.get("package", {}).get("name", "").replace("_", "-")
+            except Exception:
+                pass
+    if dest_crate_dash and dest_crate_root:
+        # Build the type index once — single pass through all .rs files.
+        # resolve_cyclic_type uses it for O(1) lookups instead of re-scanning.
+        type_index = build_type_index(search_dirs, dest_file)
+
+        non_cyclic_stmts = []
+        for stmt in unique_use_stmts:
+            sm = re.match(r'\s*(?:pub\s+)?use\s+(?:::)?(\w+)::', stmt)
+            if sm:
+                dep = sm.group(1)
+                if dep not in ("crate", "self", "super") and dep_crate_depends_on(dep, dest_crate_dash, dest_crate_root / "Cargo.toml"):
+                    type_m = re.search(r'(?:pub\s+)?use\s+\S+::(\w+)\s*;', stmt)
+                    if type_m:
+                        type_name = type_m.group(1)
+                        result = resolve_cyclic_type(
+                            type_name, dep, type_index, dest_file,
+                            dest_module_path, dest_crate_root, dest_crate_dash
+                        )
+                        if result[0] == "use_stmt":
+                            non_cyclic_stmts.append(result[1])
+                            print(f"  cyclic dep '{type_name}' → redirected to {result[1]}")
+                        elif result[0] == "moved":
+                            _, extracted, extra_stmts = result
+                            for name, text in (extracted or {}).items():
+                                if name not in canonical_defs:
+                                    canonical_defs[name] = text
+                                    if name not in write_order:
+                                        write_order.insert(0, name)
+                            non_cyclic_stmts.extend(extra_stmts)
+                        elif result[0] == "not_found":
+                            print(f"  WARNING: cyclic dep '{type_name}' not found anywhere, skipping")
+                        # "in_dest" → type already there, drop the cyclic import
+                    else:
+                        print(f"  SKIP cyclic multi-import: {stmt.strip()}")
+                    continue
+            non_cyclic_stmts.append(stmt)
+        unique_use_stmts = list(dict.fromkeys(non_cyclic_stmts))
 
     existing_extern_types = set(find_foreign_opaque_types(existing).keys())
 
@@ -854,7 +1060,7 @@ def main():
 
     # Detect and apply crate requirements based on generated code content
     all_src = "\n".join(
-        t for texts in all_collected.values() for t in texts
+        t for entries in all_collected.values() for t, _p, _ln in entries
     )
     requirements = detect_required_features(all_src)
 
