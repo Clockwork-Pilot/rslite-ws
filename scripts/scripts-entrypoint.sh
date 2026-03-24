@@ -1,5 +1,5 @@
-# #!/bin/bash
-set -e
+#!/bin/bash
+set -em
 
 # parent path relatively to current file
 PARENT_PATH=$(dirname "$0")
