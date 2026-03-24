@@ -31,6 +31,12 @@ sys	0m10,799s
 
 19G	context-full/
 
+# Next steps
+```bash
+WORK_DIR=~/git/sqlite-rust-port/crust-sqlite PORTING_FUNCS=sqlite3SelectNew ./filter_content_by_context.py crust-sqlite/src/src/select.rs > /tmp/src_src_select.rs
+```
+Error: No JSON files found in /home/yaroslav/git/sqlite-rust-port/crust-sqlite
+
 ## Logic
 We introduce scripts (either bash or python)
 ```
