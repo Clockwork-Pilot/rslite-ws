@@ -1,5 +1,9 @@
-# Get submodules
-```
+# Get
+``` bash
+# separately clone repo
+git clone git@github.com:YuraLitvinov/crust-sqlite.git
+
+# fetch / update submodules
 git submodule update --init --recursive
 ```
 
@@ -21,8 +25,10 @@ update_fn.py  <filename> <func name> (<tmp-file-path-with-entire-function-text> 
 
 ```bash
 docker build -t layered-sqlite-crust .
+```
 
-# With designated entrypoint we normally run claude
+### Claude porting c2rust produced unsafe rust code to safe rust
+```bash
 touch $(pwd)/.claude.local.json && \
 mkdir $(pwd)/.credentials -p && \
 docker run -it --rm \
@@ -33,5 +39,20 @@ docker run -it --rm \
     -v $(pwd)/context-layer:/usr/local/bin/context-layer:Z \
     -v $(pwd)/claude-plugin:/plugin:Z \
     -v $(pwd)/crust-sqlite:/workspace:Z \
-    layered-sqlite-crust
+    layered-sqlite-crust /usr/local/bin/context-layer/context_entrypoint.sh
+```
+
+### Claude working on pattern plugins converting c2rust to rust
+```bash
+touch $(pwd)/.claude.local.json && \
+mkdir $(pwd)/.credentials -p && \
+docker run -it --rm \
+    --user 1000:1000 \
+    -e PORTING_FUNCS="sqlite3SelectNew,sqlite3_expanded_sql" \
+    -v $(pwd)/.credentials:/home/node/.claude:Z \
+    -v $(pwd)/.claude.local.json:/home/node/.claude.json:Z \
+    -v $(pwd)/scripts:/usr/local/bin/scripts:Z \
+    -v $(pwd)/claude-plugin:/plugin:Z \
+    -v $(pwd)/crust-sqlite:/workspace:Z \
+    layered-sqlite-crust /usr/local/bin/scripts/scripts-entrypoint.sh
 ```

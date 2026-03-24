@@ -98,3 +98,5 @@ WORKDIR /workspace
 USER $USERNAME
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
+CMD ["/bin/bash"]
