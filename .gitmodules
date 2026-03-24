@@ -1,0 +1,6 @@
+[submodule "ra_ap_shell"]
+	path = ra_ap_shell
+	url = git@github.com:YuraLitvinov/ra_ap-shell.git
+[submodule "claude-plugin"]
+	path = claude-plugin
+	url = git@github.com:YaroslavLitvinov/y2-claude-plugin.git
