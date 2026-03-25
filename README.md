@@ -9,6 +9,12 @@ git submodule update --init --recursive
 
 # Preparation
 
+## venv
+
+```bash
+(cd unsafe_rust_fixer && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt)
+```
+
 ## Preparation steps
 ```bash
 (cd ra_ap_shell && cargo build)

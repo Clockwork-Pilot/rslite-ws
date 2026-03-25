@@ -35,6 +35,9 @@ if [ ! -f ~/.claude/settings.local.json ]; then
 SETTINGS_EOF
 fi
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
+
+echo 'source /usr/local/bin/ra_ap_shell/.venv/bin/activate' >> ~/.bashrc
+source /usr/local/bin/ra_ap_shell/.venv/bin/activate
 $ENTRYPOINT_CMD
 EOF
 )

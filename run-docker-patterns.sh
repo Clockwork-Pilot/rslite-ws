@@ -40,6 +40,9 @@ if [ ! -f ~/.claude/settings.local.json ]; then
 SETTINGS_EOF
 fi
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
+
+echo 'source /usr/local/bin/unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
+source /usr/local/bin/unsafe_rust_fixer/.venv/bin/activate
 $ENTRYPOINT_CMD
 EOF
 )

@@ -76,6 +76,13 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 USER root
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  python3 \
+  python3-pip \
+  python3-venv \
+  pinentry-curses \
+  && apt-get clean && rm -rf /var/lib/apt/lists/* 
+
 RUN chown -R $USERNAME:$USERNAME $HOME
 
 RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
