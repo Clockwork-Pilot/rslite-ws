@@ -9,12 +9,6 @@ git submodule update --init --recursive
 
 # Preparation
 
-## venv
-
-```bash
-(cd unsafe_rust_fixer && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt)
-```
-
 ## Preparation steps
 ```bash
 (cd ra_ap_shell && cargo build)
@@ -63,5 +57,10 @@ PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 
 ### Claude working on pattern plugins converting c2rust to rust
 ```bash
+
+#Create venv first
+./run-docker-patterns.sh ~/create-venv-docker.sh
+
+# Then use docker as aqusually
 ./run-docker-patterns.sh
 ```

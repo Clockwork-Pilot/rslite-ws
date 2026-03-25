@@ -20,7 +20,7 @@ else
 fi
 
 ENTRYPOINT_SCRIPT=$(cat <<EOF
-export PATH="/usr/local/bin/unsafe_rust_fixer:\$PATH"
+export PATH="/unsafe_rust_fixer:\$PATH"
 
 mkdir -p ~/.claude
 if [ ! -f ~/.claude/settings.local.json ]; then
@@ -41,8 +41,20 @@ SETTINGS_EOF
 fi
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
 
-echo 'source /usr/local/bin/unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
-source /usr/local/bin/unsafe_rust_fixer/.venv/bin/activate
+echo 'source /unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
+
+cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
+(
+    python3 -m venv /unsafe_rust_fixer/.venv &&
+    source /unsafe_rust_fixer/.venv/bin/activate &&
+    pip install -r /unsafe_rust_fixer/requirements.txt &&
+    pip install -r /plugin/knowledge_tool/requirements.txt &&
+    pip install -r /plugin/requirements.txt
+)
+CREATE_VENV_EOF
+chmod +x ~/create-venv-docker.sh
+
+source /unsafe_rust_fixer/.venv/bin/activate
 $ENTRYPOINT_CMD
 EOF
 )
@@ -53,7 +65,7 @@ docker run -it --rm \
     --user 1000:1000 \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
-    -v $(pwd)/unsafe_rust_fixer:/usr/local/bin/unsafe_rust_fixer:Z \
+    -v $(pwd)/unsafe_rust_fixer:/unsafe_rust_fixer:Z \
     -v $(pwd)/claude-plugin:/plugin:Z \
     -v $(pwd)/crust-sqlite:/workspace:Z \
     layered-sqlite-crust "${CMD[@]}"
