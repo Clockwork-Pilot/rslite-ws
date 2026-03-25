@@ -52,29 +52,10 @@ docker build -t layered-sqlite-crust .
 
 ### Claude porting c2rust produced unsafe rust code to safe rust
 ```bash
-touch $(pwd)/.claude.local.json && \
-mkdir $(pwd)/.credentials -p && \
-docker run -it --rm \
-    --user 1000:1000 \
-    -e PORTING_FUNCS="sqlite3SelectNew" \
-    -v $(pwd)/.credentials:/home/node/.claude:Z \
-    -v $(pwd)/.claude.local.json:/home/node/.claude.json:Z \
-    -v $(pwd)/context_entrypoint.sh:/usr/local/bin/context_entrypoint.sh:Z \
-    -v $(pwd)/claude-plugin:/plugin:Z \
-    -v $(pwd)/crust-sqlite:/workspace:Z \
-    layered-sqlite-crust /usr/local/bin/context_entrypoint.sh
+PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 ```
 
 ### Claude working on pattern plugins converting c2rust to rust
 ```bash
-touch $(pwd)/.claude.local.json && \
-mkdir $(pwd)/.credentials -p && \
-docker run -it --rm \
-    --user 1000:1000 \
-    -v $(pwd)/.credentials:/home/node/.claude:Z \
-    -v $(pwd)/.claude.local.json:/home/node/.claude.json:Z \
-    -v $(pwd)/unsafe_rust_fixer:/usr/local/bin/fixer-scripts:Z \
-    -v $(pwd)/claude-plugin:/plugin:Z \
-    -v $(pwd)/crust-sqlite:/workspace:Z \
-    layered-sqlite-crust /usr/local/bin/fixer-scripts/fixer-entrypoint.sh
+./run-docker-patterns.sh
 ```
