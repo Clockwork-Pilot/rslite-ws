@@ -41,6 +41,8 @@ class UnsafePatternFixer:
         """
         self.verbose = verbose
         self.plugins: Dict[str, Any] = {}
+        self.skipped_plugins: List[str] = []
+        self.expected_plugin_count: int = 0
         self._load_plugins()
 
     def _load_plugins(self) -> None:
@@ -83,10 +85,14 @@ class UnsafePatternFixer:
         sys.modules["unsafe_rust_fixer.patterns.base"] = base_module
 
         # Load all plugin modules from patterns directory
-        for plugin_file in sorted(patterns_dir.glob("*.py")):
+        plugin_files = sorted(patterns_dir.glob("*.py"))
+        self.expected_plugin_count = len([f for f in plugin_files if not f.name.startswith("_")])
+
+        for plugin_file in plugin_files:
             if plugin_file.name.startswith("_"):
                 continue
 
+            plugin_loaded = False
             try:
                 # Create proper module path for sys.modules
                 module_name = f"unsafe_rust_fixer.patterns.{plugin_file.stem}"
@@ -94,6 +100,7 @@ class UnsafePatternFixer:
                     module_name, plugin_file
                 )
                 if spec is None or spec.loader is None:
+                    self.skipped_plugins.append(plugin_file.stem)
                     continue
 
                 module = importlib.util.module_from_spec(spec)
@@ -111,22 +118,38 @@ class UnsafePatternFixer:
                             attr is not base_module.UnsafePatternPlugin):
                             plugin = attr()
                             self.plugins[plugin.name] = plugin
+                            plugin_loaded = True
                             if self.verbose:
                                 print(f"Loaded plugin: {plugin.name}")
                     except (TypeError, AttributeError):
                         pass
 
+                if not plugin_loaded:
+                    self.skipped_plugins.append(plugin_file.stem)
+
             except Exception as e:
+                self.skipped_plugins.append(plugin_file.stem)
                 if self.verbose:
                     print(f"Error loading plugin {plugin_file.name}: {e}")
                     import traceback
                     traceback.print_exc()
 
-    def list_patterns(self) -> None:
-        """List all available patterns sorted by priority."""
+    def list_patterns(self) -> bool:
+        """List all available patterns sorted by priority.
+
+        Returns:
+            True if a plugin count mismatch was detected, False otherwise.
+        """
         if not self.plugins:
             print("No patterns available. Check that plugins are installed.")
-            return
+            return False
+
+        # Check for plugin mismatch
+        has_mismatch = bool(self.skipped_plugins)
+        if has_mismatch:
+            print(f"⚠️  WARNING: Plugin loading issue detected!")
+            print(f"   Expected {self.expected_plugin_count} plugin(s), but only {len(self.plugins)} loaded successfully.")
+            print(f"   Skipped plugins ({len(self.skipped_plugins)}): {', '.join(sorted(self.skipped_plugins))}\n")
 
         print(f"Available unsafe patterns ({len(self.plugins)}):\n")
         # Sort by priority (descending), then by name
@@ -138,6 +161,7 @@ class UnsafePatternFixer:
             plugin = self.plugins[name]
             print(f"  {name} (priority: {plugin.priority})")
             print(f"    {plugin.description}\n")
+        return has_mismatch
 
     def run_tests(self) -> int:
         """Run tests for all plugins.
@@ -408,8 +432,8 @@ def main() -> int:
         fixer = UnsafePatternFixer(verbose=args.verbose)
 
         if args.list_patterns:
-            fixer.list_patterns()
-            return 0
+            has_mismatch = fixer.list_patterns()
+            return 1 if has_mismatch else 0
 
         if args.test:
             return fixer.run_tests()

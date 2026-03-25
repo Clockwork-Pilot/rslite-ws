@@ -9,6 +9,8 @@
 
 CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-patterns/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-patterns/.credentials"
+# use default if not provided externally
+MODEL=${MODEL:-"claude-haiku-4-5"}
 
 mkdir -p $CLAUDE_CREDENTIALS_DIR
 [ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
@@ -16,20 +18,24 @@ mkdir -p $CLAUDE_CREDENTIALS_DIR
 if [ $# -gt 0 ]; then
     ENTRYPOINT_CMD="$*"
 else
-    ENTRYPOINT_CMD="claude --plugin-dir /plugin"
+    ENTRYPOINT_CMD="claude --dangerously-skip-permissions --model $MODEL --plugin-dir /plugin"
 fi
 
 ENTRYPOINT_SCRIPT=$(cat <<EOF
-export PATH="/unsafe_rust_fixer:\$PATH"
+
 
 mkdir -p ~/.claude
-if [ ! -f ~/.claude/settings.local.json ]; then
-    cat > ~/.claude/settings.local.json <<'SETTINGS_EOF'
+
+# Overwrite it always when setting entrypoint. If you need to edit externally, instead edit: ~/.claude/settings.json
+cat > ~/.claude/settings.local.json <<'SETTINGS_EOF'
 {
   "permissions": {
     "deny": [
-      "Bash(rm*)",
-      "Bash(sudo*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git log:*)",
+      "Bash(gh:*)",
+      "Agent(Explore)"
     ],
     "allow": [
       "Read(*)",
@@ -38,9 +44,14 @@ if [ ! -f ~/.claude/settings.local.json ]; then
   }
 }
 SETTINGS_EOF
-fi
+
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
 
+export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):/unsafe_rust_fixer:\$PATH"
+echo 'export PATH="\$PATH"' >> ~/.bashrc
+echo 'export CLAUDE_PROJECT_ROOT=/workspace' >> ~/.bashrc
+echo 'export CLAUDE_PLUGIN_ROOT=/plugin' >> ~/.bashrc
+echo 'export TEST_LOG=/workspace/log.txt' >> ~/.bashrc
 echo 'source /unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
 
 cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
@@ -54,7 +65,9 @@ cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
 CREATE_VENV_EOF
 chmod +x ~/create-venv-docker.sh
 
+source ~/.bashrc
 source /unsafe_rust_fixer/.venv/bin/activate
+
 $ENTRYPOINT_CMD
 EOF
 )
@@ -66,6 +79,6 @@ docker run -it --rm \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/unsafe_rust_fixer:/unsafe_rust_fixer:Z \
-    -v $(pwd)/claude-plugin:/plugin:Z \
+    -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/crust-sqlite:/workspace:Z \
     layered-sqlite-crust "${CMD[@]}"
