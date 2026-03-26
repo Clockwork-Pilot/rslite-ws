@@ -61,6 +61,28 @@ PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 #Create venv first
 ./run-docker-patterns.sh ~/create-venv-docker.sh
 
-# Then use docker as aqusually
+# Then use docker as usual
 ./run-docker-patterns.sh
+```
+
+#### Permissions within Docker
+
+It is corresponding to `~/.claude/settings.json` inside docker container.
+Set permisisons manually in file:
+`docker-claude-artifacts-c2rust-patterns/.credentials/settings.json`: 
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git log:*)",
+      "Bash(gh:*)",
+      "Agent(Explore)",
+      "Write(/workspace/*)",
+      "Edit(/workspace/*)"
+    ]
+  }
+}
 ```

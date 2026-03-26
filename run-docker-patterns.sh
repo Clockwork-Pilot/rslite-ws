@@ -26,25 +26,7 @@ ENTRYPOINT_SCRIPT=$(cat <<EOF
 
 mkdir -p ~/.claude
 
-# Overwrite it always when setting entrypoint. If you need to edit externally, instead edit: ~/.claude/settings.json
-cat > ~/.claude/settings.local.json <<'SETTINGS_EOF'
-{
-  "permissions": {
-    "deny": [
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(git log:*)",
-      "Bash(gh:*)",
-      "Agent(Explore)"
-    ],
-    "allow": [
-      "Read(*)",
-      "Write(*)"
-    ]
-  }
-}
-SETTINGS_EOF
-
+# assign default value if file is empty
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
 
 export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):/unsafe_rust_fixer:\$PATH"

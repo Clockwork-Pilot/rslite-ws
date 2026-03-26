@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import importlib.util
+import fnmatch
 
 
 class UnsafePatternFixer:
@@ -196,6 +197,40 @@ class UnsafePatternFixer:
 
         return 0 if all_passed else 1
 
+    def expand_glob_patterns(self, match_patterns: List[str]) -> List[str]:
+        """Expand glob patterns to match available plugins.
+
+        Args:
+            match_patterns: List of pattern names or glob patterns (e.g., ['*', 'raw_*'])
+
+        Returns:
+            Expanded list of pattern names
+        """
+        expanded = []
+        available_patterns = set(self.plugins.keys())
+
+        for pattern in match_patterns:
+            if pattern == '*':
+                # Match all available patterns
+                expanded.extend(sorted(available_patterns))
+            else:
+                # Use fnmatch for glob-style pattern matching
+                matches = fnmatch.filter(available_patterns, pattern)
+                if matches:
+                    expanded.extend(matches)
+                else:
+                    # If no matches, still include the pattern (will be reported as not found later)
+                    expanded.append(pattern)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        result = []
+        for p in expanded:
+            if p not in seen:
+                seen.add(p)
+                result.append(p)
+        return result
+
     def find_patterns(self, rust_file: str, match_patterns: Optional[List[str]] = None) -> Dict[str, List[Tuple[int, int, str]]]:
         """Find all unsafe patterns in a Rust file.
 
@@ -215,6 +250,10 @@ class UnsafePatternFixer:
             code = f.read()
 
         results: Dict[str, List[Tuple[int, int, str]]] = {}
+
+        # Expand glob patterns if specified
+        if match_patterns:
+            match_patterns = self.expand_glob_patterns(match_patterns)
 
         # Sort patterns by priority (descending)
         sorted_pattern_names = sorted(
@@ -398,7 +437,7 @@ def main() -> int:
         "--match-patterns",
         metavar="PATTERNS",
         required=False,
-        help="Comma-separated list of patterns to match (e.g., unsafe_deref_raw_ptr,unsafe_cast)"
+        help="Comma-separated list of patterns to match. Supports glob patterns: * matches all patterns, raw_* matches patterns starting with 'raw_' (e.g., unsafe_deref_raw_ptr,raw_*,*)"
     )
     parser.add_argument(
         "--fix",
