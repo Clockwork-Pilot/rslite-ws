@@ -13,6 +13,7 @@ cd ..
 PORTING_FUNCS=<function-name> ./run-docker-porting.sh
 ```
 ### Current status
+- Requires crust-sqlite repo to be present in the same directory as this repo, maybe make it a submodule
 - Copies the repo inside the docker container. 
 - Spawns claude inside of it with all the scripts, however, only one must be accesible by it - `filter_content_by_context.py`. 
     There is a subtle remark we can make - I think claude MAY have access to edit a single file, maybe even with expanded lines if it's write() supports it, because of the way we always know what file exactly is the function in due to pre-seed, also, this saves a lot of potential to avoid mistakes with tree-sitter.
