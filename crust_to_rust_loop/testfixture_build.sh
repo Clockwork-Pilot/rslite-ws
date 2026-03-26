@@ -8,4 +8,4 @@ mkdir -p "$PROJ/sqlite-testfixture"
 
 CARGO_TARGET_DIR="$PROJ/sqlite-testfixture" cargo build --release -q --features test
 
-bash testfixture_swap_optimized.sh
+bash scripts/testfixture_swap_optimized.sh

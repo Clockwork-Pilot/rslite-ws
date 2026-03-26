@@ -1,8 +1,8 @@
 #!/bin/bash
 
-./shell_build.sh
+./scripts/shell_build.sh
 
-./testfixture_build.sh
+./scripts/testfixture_build.sh
 
 cd /sqlite
 ./rustfixture test/testrunner.tcl

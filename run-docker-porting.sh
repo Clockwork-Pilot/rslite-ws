@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # Reference README_PORTING.md
 PORTING_FUNCS=${PORTING_FUNCS:-"sqlite3SelectNew"}
 
@@ -48,14 +47,52 @@ EOF
 
 CMD=(bash -c "$ENTRYPOINT_SCRIPT")
 
-docker run -it --rm \
+CONTAINER="crust-session-$$"
+PATCH_DIR="$(pwd)/patches"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+PATCH_FILE="$PATCH_DIR/session_${TIMESTAMP}.patch"
+
+mkdir -p "$PATCH_DIR"
+
+cleanup() {
+    echo ""
+    echo "==> Removing container '$CONTAINER'..."
+    docker rm -f "$CONTAINER" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+
+
+echo "==> Starting container '$CONTAINER'..."
+docker run -dit \
+    --name "$CONTAINER" \
     --user 1000:1000 \
     -e PORTING_FUNCS \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/ra_ap_shell/:/usr/local/bin/ra_ap_shell:ro,Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
-    -v $CONTEXT_FULL:/workspace/context-full:ro,Z \
+    -v $CONTEXT_FULL:/context-full:ro,Z \
     -v $(pwd)/crust_to_rust_loop:/workspace/scripts:ro,Z \
-    -v $(pwd)/crust-sqlite:/workspace:Z \
-    layered-sqlite-crust "${CMD[@]}"
+    layered-sqlite-crust sleep inf
+
+
+echo "==> Copying repo into container..."
+docker cp "$(pwd)/crust-sqlite/." "$CONTAINER:/workspace"
+
+
+echo "==> Launching Claude Code..."
+docker exec -it "$CONTAINER" "${CMD[@]}"
+
+echo ""
+echo "==> Generating patch..."
+docker exec "$CONTAINER" \
+    git -C /workspace diff HEAD \
+    > "$PATCH_FILE"
+
+if [[ ! -s "$PATCH_FILE" ]]; then
+    echo "==> No changes — patch is empty."
+    rm -f "$PATCH_FILE"
+else
+    echo "==> Patch written: $PATCH_FILE ($(wc -l < "$PATCH_FILE") lines)"
+fi

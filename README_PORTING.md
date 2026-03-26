@@ -10,11 +10,10 @@ cd ..
 
 ./ra_ap_shell/target/release/ast-rs-shell --context-exports # This requires the latest version. Scripts in crust_to_rust_loop are synced with shell
 
-CONTEXT_FULL=<defaults out to $(pwd/context-full)> PORTING_FUNCS=<this should start with any function having 0 dependencies> ./run-docker-patterns.sh 
-
- ./run-docker-porting-loop.py                              # Process all files                                                                                                                                     
- ./run-docker-porting-loop.py --rs-number 0               # Only -rs-0- files                                                                                                                                      
- ./run-docker-porting-loop.py --rs-number 0 --jobs 8      # -rs-0- with 8 parallel jobs                                                                                                                            
- ./run-docker-porting-loop.py --pattern "*Fts3*" --jobs 2 # Filter + parallel                                                                                                                                         
- ./run-docker-porting-loop.py --help                       # Show all options
+PORTING_FUNCS=<function-name> ./run-docker-porting.sh
 ```
+### Current status
+- Copies the repo inside the docker container. 
+- Spawns claude inside of it with all the scripts, however, only one must be accesible by it - `filter_content_by_context.py`. 
+    There is a subtle remark we can make - I think claude MAY have access to edit a single file, maybe even with expanded lines if it's write() supports it, because of the way we always know what file exactly is the function in due to pre-seed, also, this saves a lot of potential to avoid mistakes with tree-sitter.
+- Allows for creating patches for functions, which is more compact type of output then the repo itself and this patch should only touch a single file. 
