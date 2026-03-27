@@ -25,7 +25,7 @@ fi
 
 CONTEXT_FULL=${CONTEXT_FULL:-"$(pwd)/context-full"}
 CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-port/.claude.json"
-CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-port/.credentials"
+CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-port/.claude"
 PATCH_DIR="$(pwd)/patches"
 mkdir -p "$PATCH_DIR"
 
@@ -46,10 +46,8 @@ for FULL_JSON_PATH in $JSON_FILES; do
         | sed 's/-\([a-z]*\)$/.\1/' \
         | tr '-' '/')
 
-    echo "--------------------------------------------------------"
     echo "==> Processing: $PORTING_FUNCS"
     echo "==> Target file: $PORTING_FILE"
-    echo "==> Using JSON: $PORTING_JSON"
 
     CONTAINER="crust-session-$$"
     PATCH_FILE="$PATCH_DIR/session_${PORTING_FUNCS}.patch"
@@ -57,27 +55,19 @@ for FULL_JSON_PATH in $JSON_FILES; do
     ENTRYPOINT_SCRIPT=$(cat <<EOF
 export PATH="/usr/local/bin/ra_ap_shell/target/release:\$PATH"
 
-mkdir -p ~/.claude
-if [ ! -f ~/.claude/settings.local.json ]; then
-    cat > ~/.claude/settings.local.json <<SETTINGS_EOF
-{
-  "permissions": {
-    "deny": [
-      "Bash(rm*)",
-      "Bash(sudo*)",
-      "Bash(git*)",
-      "Bash(cargo*)",
-      "Bash(find*)",
-      "Bash(grep*)",
-      "Bash(awk*)"
-    ],
-    "allow": [
-      "Read(/workspace/$PORTING_FILE)",
-      "Write(/workspace/$PORTING_FILE)",
-      "Bash(./scripts/filter_content_by_context.py)"
-    ]
-  }
-}
+mkdir -p /workspace/.claude
+if [ ! -f /workspace/.claude/settings.local.json ]; then
+    cat > /workspace/.claude/settings.local.json <<SETTINGS_EOF
+{                                                                                                                                                                                                                 
+    "permissions": {
+      "allow": [                                                  
+        "Read($PORTING_FILE)",
+        "Write($PORTING_FILE)",
+        "Edit($PORTING_FILE)",
+        "Bash(scripts/filter_content_by_context.py)"                                                                                                                                                                
+      ]                                                                                                                                                                                                         
+    }                                                                                                                                                                                                              
+}      
 SETTINGS_EOF
 fi
 
