@@ -63,6 +63,9 @@ PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 
 # Then use docker as usual
 ./run-docker-patterns.sh
+
+# Test it
+./run-docker-patterns.sh "python /unsafe-rust-fixer.py --match-patterns='*' --fix src/ && ./build_all.sh && unsafe-rust-fixer.py --match-patterns='*' --fix --dry-run src/"
 ```
 
 #### Permissions within Docker
@@ -77,6 +80,7 @@ Set permisisons manually in file:
     "deny": [
       "Bash(git commit:*)",
       "Bash(git push:*)",
+      "Bash(git config:*)",
       "Bash(git log:*)",
       "Bash(gh:*)",
       "Agent(Explore)",

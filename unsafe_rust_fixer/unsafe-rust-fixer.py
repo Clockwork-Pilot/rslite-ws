@@ -353,7 +353,7 @@ class UnsafePatternFixer:
         with open(rust_file, 'r', encoding='utf-8') as f:
             code = f.read()
 
-        if not findings:
+        if not findings or not self.verbose:
             return
 
         for pattern_name in sorted(findings.keys()):
@@ -372,13 +372,15 @@ class UnsafePatternFixer:
                 print()
 
     def apply_fixes_to_patterns(
-        self, rust_file: str, findings: Dict[str, List[Tuple[int, int, str]]]
-    ) -> None:
+        self, rust_file: str, findings: Dict[str, List[Tuple[int, int, str]]],
+        dry_run: bool = False
+    ) -> bool:
         """Apply fixes to the patterns that were matched.
 
         Args:
             rust_file: Path to Rust source file
             findings: Dict of matched pattern names to findings
+            dry_run: If True, compute fixes but do not write to disk
         """
         if not os.path.exists(rust_file):
             raise FileNotFoundError(f"File not found: {rust_file}")
@@ -410,14 +412,20 @@ class UnsafePatternFixer:
             except Exception as e:
                 print(f"Error applying fix for {pattern_name}: {e}")
 
-        # Write back if changes were made
+        # Write back if changes were made (skip if dry-run)
         if code != original_code:
-            with open(rust_file, 'w', encoding='utf-8') as f:
-                f.write(code)
-            print(f"✓ Fixed {fixed_count} pattern group(s)")
-            print(f"✓ Updated {rust_file}")
-        else:
-            print(f"No changes needed in {rust_file}")
+            if self.verbose:
+                print(f"✓ Fixed {fixed_count} pattern group(s)")
+            if dry_run:
+                if self.verbose:
+                    print(f"✓ Would update {rust_file} (dry-run, not written)")
+            else:
+                with open(rust_file, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                if self.verbose:
+                    print(f"✓ Updated {rust_file}")
+
+        return code != original_code
 
 
 def main() -> int:
@@ -453,6 +461,11 @@ def main() -> int:
         "--test",
         action="store_true",
         help="Run self-contained tests for all plugins"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run full find+fix flow but do not write any changes to disk"
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -518,24 +531,42 @@ def main() -> int:
                         print(f"Error processing {rust_file}: {e}")
 
             # Apply fixes if --fix specified
+            dry_run_skip_count = 0
             if args.fix:
                 if args.verbose:
                     print(f"\nApplying fixes to matched patterns...")
                 for rust_file in sorted(total_findings.keys()):
-                    fixer.apply_fixes_to_patterns(rust_file, total_findings[rust_file])
+                    changed = fixer.apply_fixes_to_patterns(rust_file, total_findings[rust_file], dry_run=args.dry_run)
+                    if args.dry_run and changed:
+                        dry_run_skip_count += 1
 
-            return 0
+            if args.dry_run:
+                total_occurrences = sum(len(v) for f in total_findings.values() for v in f.values())
+                print(f"Dry-run summary:")
+                print(f"Occurrences matched: {total_occurrences}")
+                print(f"Fixes skipped (dry-run): {dry_run_skip_count}")
+
+            return 1 if (args.dry_run and dry_run_skip_count > 0) else 0
         else:
             # Single file mode
             findings = fixer.find_patterns(target, match_patterns=match_patterns)
             fixer.report_matched_patterns(target, findings)
 
+            dry_run_skip_count = 0
             if args.fix and findings:
                 if args.verbose:
                     print(f"\nApplying fixes to matched patterns...")
-                fixer.apply_fixes_to_patterns(target, findings)
+                changed = fixer.apply_fixes_to_patterns(target, findings, dry_run=args.dry_run)
+                if args.dry_run and changed:
+                    dry_run_skip_count += 1
 
-            return 0
+            if args.dry_run:
+                total_occurrences = sum(len(v) for v in findings.values())
+                print(f"Dry-run summary:")
+                print(f"Occurrences matched: {total_occurrences}")
+                print(f"Fixes skipped (dry-run): {dry_run_skip_count}")
+
+            return 1 if (args.dry_run and dry_run_skip_count > 0) else 0
 
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)

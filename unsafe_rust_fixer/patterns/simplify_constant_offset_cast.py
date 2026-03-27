@@ -126,9 +126,9 @@ class SimplifyConstantOffsetCastPlugin(UnsafePatternPlugin):
         return (receiver, const_value)
 
     def _has_cast_chain(self, offset_arg_node: Any, code: str) -> bool:
-        """Check if the offset argument has cast chains (as Type [as Type2 ...])."""
+        """Check if the offset argument has cast chains (2+ casts: as Type as Type2 ...)."""
         text = self.node_text(offset_arg_node, code)
-        return ' as ' in text
+        return text.count(' as ') >= 2
 
     # ── interface ─────────────────────────────────────────────────────────────
 

@@ -195,6 +195,20 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
         block_text = self.node_text(block, code)
         return bool(re.search(rf'&raw\s+mut\s+\(\*{re.escape(ptr_var)}\)\s*\.', block_text))
 
+    def _has_ref_binding(self, block: Any, ptr_var: str, code: str) -> bool:
+        """Check if a reference binding for ptr_var already exists in block.
+
+        Returns True if the block contains:
+            let __<ptr_var>_ref = unsafe { &...
+        which means this pointer has already been transformed in a previous run.
+        """
+        block_text = self.node_text(block, code)
+        ref_name = f'__{ptr_var}_ref'
+        # Look for the binding pattern: let __ptr_ref = unsafe { &
+        # Must check for both &* and &mut * forms
+        pattern = rf'let\s+{re.escape(ref_name)}\s*=\s*unsafe\s*\{{\s*&(mut\s*)?'
+        return bool(re.search(pattern, block_text))
+
     # ── Match collection ──────────────────────────────────────────────────────
 
     def _collect_matches(self, code: str) -> List[Dict[str, Any]]:
@@ -231,11 +245,18 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
                 groups[key]['needs_mut'] = True
 
         candidates = []
+        already_bound: List[Dict[str, Any]] = []  # blocks already transformed — excluded from candidates
         for (block_start, ptr_var), info in groups.items():
             if len(info['field_exprs']) < self.MIN_DEREF_COUNT:
                 continue
 
             block = info['block']
+
+            # Track already-bound blocks separately so their ranges still participate
+            # in deduplication and prevent inner blocks from being selected again.
+            if self._has_ref_binding(block, ptr_var, code):
+                already_bound.append(info)
+                continue
 
             # Skip if pointer is reassigned in this block
             if self._has_ptr_reassignment(block, ptr_var, code):
@@ -276,6 +297,14 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
         candidates.sort(key=lambda c: c['block'].end_byte - c['block'].start_byte, reverse=True)
         used_block_ranges: Dict[str, List[Tuple[int, int]]] = {}  # ptr_var -> [(start, end), ...]
 
+        # Pre-register already-bound blocks so their ranges block inner blocks
+        # from being selected — prevents inner blocks from slipping through on
+        # subsequent runs after outer blocks have been transformed.
+        for info in already_bound:
+            ptr_var = info['ptr_var']
+            block = info['block']
+            used_block_ranges.setdefault(ptr_var, []).append((block.start_byte, block.end_byte))
+
         for info in candidates:
             ptr_var = info['ptr_var']
             block = info['block']
@@ -299,7 +328,12 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
         # UNLESS this block strictly *contains* the existing range (i.e., is
         # itself the outer block).
         final: List[Dict[str, Any]] = []
-        used_ranges: List[Tuple[int, int]] = []
+        # Pre-seed used_ranges with already-bound blocks to block their inner
+        # blocks from being selected in cross-ptr deduplication.
+        used_ranges: List[Tuple[int, int]] = [
+            (info['block'].start_byte, info['block'].end_byte)
+            for info in already_bound
+        ]
         # Sort by start_byte asc, then by size desc so outer blocks (same start,
         # larger span) are always processed before inner ones.
         pre_final.sort(key=lambda m: (m['block'].start_byte,
@@ -438,10 +472,28 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
             except Exception:
                 pass
 
-        matches = self._collect_matches(rust_code)
-        if not matches:
-            return rust_code
+        # Iterate until fixed point: inner blocks excluded by cross-ptr dedup on
+        # earlier rounds become eligible once their outer block is transformed.
+        # Each round transforms one layer; we stop when no new matches are found.
+        MAX_ROUNDS = 20
+        for _round in range(MAX_ROUNDS):
+            matches = self._collect_matches(rust_code)
+            if not matches:
+                break
+            rust_code = self._apply_matches(rust_code, matches)
 
+        # Persist fix result to cache
+        try:
+            os.makedirs(_CACHE_DIR, exist_ok=True)
+            with open(fix_cache, 'w', encoding='utf-8') as _f:
+                _f.write(rust_code)
+        except Exception:
+            pass
+
+        return rust_code
+
+    def _apply_matches(self, rust_code: str, matches: List[Dict[str, Any]]) -> str:
+        """Apply one round of matches to rust_code and return the result."""
         # Group matches by block — multiple pointers may be in the same block
         block_transforms: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
         for m in matches:
@@ -568,6 +620,15 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
                 for i in range(len(block_lines)):
                     block_lines[i] = single_re.sub(f'{ref_name}.', block_lines[i])
 
+            # Deduplicate bindings: keep only the first occurrence of each unique binding
+            # This prevents duplicate `let __ptr_ref = unsafe { &...};` lines
+            seen_bindings: Set[str] = set()
+            unique_bindings = []
+            for insert_after, priority, binding in all_bindings:
+                if binding not in seen_bindings:
+                    seen_bindings.add(binding)
+                    unique_bindings.append((insert_after, priority, binding))
+
             # Insert bindings bottom-to-top so earlier insertions don't shift
             # the line indices of later ones.
             # Sort: primary key = insert_after descending (bottom-to-top).
@@ -575,24 +636,14 @@ class RawPtrDerefFieldChainPlugin(UnsafePatternPlugin):
             # sort before priority-0 items for the same line, so they are
             # inserted first and end up BELOW the main ref binding.
             for insert_after, _priority, binding in sorted(
-                all_bindings, key=lambda x: (x[0], x[1]), reverse=True
+                unique_bindings, key=lambda x: (x[0], x[1]), reverse=True
             ):
                 block_lines.insert(insert_after + 1, binding)
 
             new_block_text = '\n'.join(block_lines)
             replacements.append((block.start_byte, block.end_byte, new_block_text))
 
-        result = self.apply_replacements(rust_code, replacements)
-
-        # Persist fix result to cache
-        try:
-            os.makedirs(_CACHE_DIR, exist_ok=True)
-            with open(fix_cache, 'w', encoding='utf-8') as _f:
-                _f.write(result)
-        except Exception:
-            pass
-
-        return result
+        return self.apply_replacements(rust_code, replacements)
 
     # ── Tests ─────────────────────────────────────────────────────────────────
 

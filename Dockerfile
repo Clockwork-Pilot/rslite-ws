@@ -70,7 +70,9 @@ RUN cd /sqlite && \
     cd /sqlite && \
     ./configure --all --disable-amalgamation && make && rm *.o
 
-RUN rustup install nightly-2023-04-15-x86_64-unknown-linux-gnu
+RUN rustup install nightly-2023-04-15-x86_64-unknown-linux-gnu \
+    && rustup component add --toolchain nightly-2023-04-15-x86_64-unknown-linux-gnu \
+       rustfmt rust-analyzer
 
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
