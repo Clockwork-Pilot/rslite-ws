@@ -50,7 +50,26 @@ update_fn.py  <filename> <func name> (<tmp-file-path-with-entire-function-text> 
 docker build -t layered-sqlite-crust .
 ```
 
-### Claude porting c2rust produced unsafe rust code to safe rust
+# Claude porting c2rust produced unsafe rust code to safe rust
+
+It is corresponding to `~/.claude/settings.json` inside docker container.
+Set permisisons manually in file:
+`docker-claude-artifacts-c2rust-port/.claude/settings.json`: 
+
+``` json
+  "permissions": {
+      "deny": [
+        "WebSearch",
+        "Explore",
+     ],
+    "allow": [
+      "Read($PORTING_FILE)",
+      "Write($PORTING_FILE)",
+      "Edit($PORTING_FILE)"
+    ]
+  }    
+```
+
 ```bash
 PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 ```

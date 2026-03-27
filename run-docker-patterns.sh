@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Ctrl+Z inside docker run -it sends SIGTSTP to both the container and the host shell,
-# which exits back to the host. Running inside tmux prevents this — tmux owns the PTY
-# so Ctrl+Z stays inside the session.
-# if [ -z "$TMUX" ]; then
-#     exec tmux new-session "$0" "$@"
-# fi
 
 CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-patterns/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-patterns/.credentials"
