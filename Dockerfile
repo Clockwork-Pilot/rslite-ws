@@ -100,8 +100,15 @@ RUN usermod -aG tty $USERNAME
 # add claude code path
 ENV PATH="$HOME/.local/bin:$PATH"
 
-COPY docker-entrypoint.sh /usr/local/bin
+COPY docker-scripts/docker-entrypoint.sh /usr/local/bin
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Install git/gh proxy wrapper — blocks commit, push, rebase, etc.
+COPY docker-scripts/proxy_wrapper.py /usr/local/bin/proxy_wrapper.py
+RUN chmod +x /usr/local/bin/proxy_wrapper.py \
+    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
+    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
+    && chmod 711 /usr/bin/git /usr/bin/gh
 
 WORKDIR /workspace
 USER $USERNAME
