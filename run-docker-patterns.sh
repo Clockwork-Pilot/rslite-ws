@@ -24,10 +24,14 @@ mkdir -p ~/.claude
 [ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
 
 export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):/unsafe_rust_fixer:\$PATH"
-echo 'export PATH="\$PATH"' >> ~/.bashrc
-echo 'export CLAUDE_PROJECT_ROOT=/workspace' >> ~/.bashrc
-echo 'export CLAUDE_PLUGIN_ROOT=/plugin' >> ~/.bashrc
-echo 'export TEST_LOG=/workspace/log.txt' >> ~/.bashrc
+export CLAUDE_PROJECT_ROOT=/unsafe_rust_fixer
+export CLAUDE_PLUGIN_ROOT=/plugin
+export WORKSPACE_ROOT=/workspace
+
+echo "export PATH=\"\$PATH:$PATH\"" >> ~/.bashrc
+echo "export CLAUDE_PROJECT_ROOT=\$CLAUDE_PROJECT_ROOT" >> ~/.bashrc
+echo "export CLAUDE_PLUGIN_ROOT=\$CLAUDE_PLUGIN_ROOT" >> ~/.bashrc
+echo "export WORKSPACE_ROOT=\$WORKSPACE_ROOT" >> ~/.bashrc
 echo 'source /unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
 
 cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
@@ -41,7 +45,6 @@ cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
 CREATE_VENV_EOF
 chmod +x ~/create-venv-docker.sh
 
-source ~/.bashrc
 source /unsafe_rust_fixer/.venv/bin/activate
 
 $ENTRYPOINT_CMD
