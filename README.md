@@ -55,7 +55,7 @@ docker build -t layered-sqlite-crust .
 PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 ```
 
-### Claude working on pattern plugins converting c2rust to rust
+# Claude working on pattern plugins converting c2rust to rust
 ```bash
 
 #Create venv first
@@ -67,8 +67,7 @@ PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 # Test it
 ./run-docker-patterns.sh "python /unsafe-rust-fixer.py --match-patterns='*' --fix src/ && ./build_all.sh && unsafe-rust-fixer.py --match-patterns='*' --fix --dry-run src/"
 ```
-
-#### Permissions within Docker
+## Permissions within Docker
 
 It is corresponding to `~/.claude/settings.json` inside docker container.
 Set permisisons manually in file:
@@ -89,4 +88,13 @@ Set permisisons manually in file:
     ]
   }
 }
+```
+
+## Run ast-rs-shell in docker
+```bash
+
+./run-docker-patterns.sh "(cd /ra_ap_shell && cargo build --release)"
+
+# run against sqlite rust codebase
+./run-docker-patterns.sh "(cd /workspace && /ra_ap_shell/target/release/ast-rs-shell --context-exports)"
 ```
