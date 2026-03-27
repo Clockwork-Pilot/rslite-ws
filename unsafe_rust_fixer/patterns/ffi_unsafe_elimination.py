@@ -33,6 +33,22 @@ Sub-patterns handled:
        - Not reassigned between uses
        - Correct mutability detection (LHS vs RHS)
 
+  C. unsafe_block_to_safe_ref
+     ─────────────────────────
+     Finds:
+       let [mut] p_ref = unsafe { &[mut] *raw_ptr };
+       ... p_ref.field ...   (safe reference usages)
+
+     Fixes:
+       let [mut] p_ref = &[mut] *raw_ptr;   // remove unsafe block
+       ... p_ref.field ...                   // field access unchanged
+
+     Conditions:
+       - The binding RHS is an unsafe block containing only a reference expression
+       - The reference expression dereferences a raw pointer
+       - All uses are safe field accesses (not raw pointer operations)
+       - No reassignments between declaration and final use
+
 Data-flow analysis per binding:
   - Track all defs (declarations, assignments)
   - Track all uses (field access, function args, raw deref, address-of)
@@ -67,6 +83,11 @@ CAST_BINDING_RE = re.compile(
 # Detect nested double-deref: (*(*VAR).FIELD).SUBFIELD
 NESTED_DEREF_RE = re.compile(
     r'\(\*\(\*(\w+)\)\s*\.\s*(\w+)\)\s*\.\s*(\w+)'
+)
+
+# Detect unsafe block binding: let [mut] VAR = unsafe { &[mut] *EXPR };
+UNSAFE_BLOCK_BINDING_RE = re.compile(
+    r'\blet\s+(?:mut\s+)?(\w+)\s*=\s*unsafe\s*\{\s*&'
 )
 
 
@@ -141,6 +162,16 @@ class NestedDerefGroup:
     needs_mut: bool = False
 
 
+@dataclass
+class UnsafeBlockBinding:
+    """A safe reference binding wrapped in an unsafe block."""
+    var_name: str          # The reference variable name (e.g., "pTab_ref")
+    is_mut: bool           # Whether &mut (True) or & (False)
+    decl_node: Any         # The let_declaration AST node
+    unsafe_block_node: Any # The unsafe_block AST node
+    ptr_expr: str          # The pointer expression being dereferenced (e.g., "pTab")
+
+
 class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
     """Eliminate unnecessary unsafe in FFI/C-binding code."""
 
@@ -157,7 +188,7 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
 
     @property
     def priority(self) -> int:
-        return 15  # Higher than raw_ptr_deref_field_chain (14)
+        return 13  # Lower than raw_ptr_deref_field_chain (14) so it runs after
 
     # ── AST helpers ─────────────────────────────────────────────────────────
 
@@ -602,11 +633,176 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
                     return True
         return False
 
+    # ── Pattern C: unsafe_block_to_safe_ref ───────────────────────────────────
+
+    def _collect_safe_ref_usages(self, block: Any, var_name: str, code: str) -> BindingUsages:
+        """
+        Collect usages of a safe reference variable (for unsafe_block_to_safe_ref pattern).
+        Unlike _collect_usages which looks for (*var).field patterns, this looks for direct
+        var.field accesses since the variable is already a safe reference.
+        """
+        field_derefs: List[Any] = []
+        raw_derefs: List[Any] = []
+        fn_args: List[Any] = []
+        reassignments: List[Any] = []
+        compound_assigns: List[Any] = []
+        method_calls: List[Any] = []
+
+        # Collect direct field accesses: var.field (not (*var).field)
+        for fe in self.find_nodes(block, 'field_expression'):
+            value = fe.child_by_field_name('value')
+            if value is not None and value.type == 'identifier':
+                if self.node_text(value, code) == var_name:
+                    parent = fe.parent
+                    # Method call: var.method(args)
+                    if parent and parent.type == 'call_expression':
+                        func_child = parent.child_by_field_name('function')
+                        if func_child is not None and func_child.start_byte == fe.start_byte:
+                            method_calls.append(fe)
+                            continue
+                    # Compound assignment: var.field += ...
+                    if parent and parent.type == 'compound_assignment_expr':
+                        left = parent.child_by_field_name('left')
+                        if left is not None and left.start_byte == fe.start_byte:
+                            compound_assigns.append(fe)
+                            continue
+                    field_derefs.append(fe)
+
+        # Collect reassignments: var = ...
+        for assign in self.find_nodes(block, 'assignment_expression'):
+            left = assign.child_by_field_name('left')
+            if left is not None and left.type == 'identifier':
+                if self.node_text(left, code).strip() == var_name:
+                    reassignments.append(assign)
+
+        return BindingUsages(
+            field_derefs=field_derefs,
+            raw_derefs=raw_derefs,
+            fn_args=fn_args,
+            reassignments=reassignments,
+            compound_assigns=compound_assigns,
+            method_calls=method_calls,
+        )
+
+    def _collect_unsafe_block_binding_matches(self, code: str) -> List[Dict[str, Any]]:
+        """
+        Find let bindings of the form:
+          let [mut] p_ref = unsafe { &[mut] *expr };
+          ... p_ref.field ...   (all uses are safe reference operations)
+
+        Returns list of transform descriptors.
+        """
+        root = self.parse(code)
+        all_let_decls = self.find_nodes(root, 'let_declaration')
+
+        results = []
+        for let_decl in all_let_decls:
+            # Check if we're in an unsafe extern "C" function
+            if not self._is_extern_c_unsafe_function(let_decl, code):
+                continue
+
+            # Get the variable name from the pattern
+            pattern_node = let_decl.child_by_field_name('pattern')
+            if pattern_node is None:
+                continue
+            var_name = self.node_text(pattern_node, code).strip()
+            if var_name.startswith('mut '):
+                var_name = var_name[4:]
+
+            # Get the value node
+            value_node = let_decl.child_by_field_name('value')
+            if value_node is None or value_node.type != 'unsafe_block':
+                continue
+
+            # Find the block inside the unsafe_block (second child after 'unsafe')
+            unsafe_block_body = None
+            for child in value_node.children:
+                if child.type == 'block':
+                    unsafe_block_body = child
+                    break
+
+            if unsafe_block_body is None:
+                continue
+
+            # Find the reference_expression inside the block
+            ref_expr = None
+            for child in unsafe_block_body.children:
+                if child.type == 'reference_expression':
+                    ref_expr = child
+                    break
+
+            if ref_expr is None:
+                continue
+
+            # Extract mutability and the dereferenced expression
+            is_mut = False
+            deref_expr = None
+
+            for ref_child in ref_expr.children:
+                if ref_child.type == 'mutable_specifier':
+                    is_mut = True
+                elif ref_child.type == 'unary_expression':
+                    # Check if this is a dereference (*expr)
+                    unary_children = ref_child.children
+                    if (len(unary_children) >= 2 and
+                            unary_children[0].type == '*' and
+                            unary_children[1].type == 'identifier'):
+                        deref_expr = self.node_text(unary_children[1], code)
+                        break
+
+            if deref_expr is None:
+                continue
+
+            # Get the enclosing block
+            block = self.get_parent_of_type(let_decl, 'block')
+            if block is None:
+                continue
+
+            # Collect all usages of the variable (as a safe reference, not dereferenced)
+            usages = self._collect_safe_ref_usages(block, var_name, code)
+
+            # Only transform if the variable is only used via safe reference operations
+            # (no reassignments)
+            if usages.reassignments:
+                continue
+
+            # At least 1 use needed
+            if not usages.field_derefs and not usages.method_calls:
+                continue
+
+            # IMPORTANT: Check if the original dereferenced pointer (deref_expr) is used
+            # in other ways that would interfere with idempotency. If the original pointer
+            # is used in any unsafe-requiring contexts, transforming this would leave those
+            # patterns for other pattern matchers, breaking idempotency.
+            deref_ptr_usage = self._collect_usages(block, deref_expr, code)
+            if (deref_ptr_usage.field_derefs or deref_ptr_usage.raw_derefs or
+                    deref_ptr_usage.fn_args or deref_ptr_usage.method_calls):
+                # The original pointer is used in other ways - skip this pattern
+                # to avoid breaking idempotency
+                continue
+
+            results.append({
+                'pattern': 'unsafe_block_to_safe_ref',
+                'block': block,
+                'var_name': var_name,
+                'binding': UnsafeBlockBinding(
+                    var_name=var_name,
+                    is_mut=is_mut,
+                    decl_node=let_decl,
+                    unsafe_block_node=value_node,
+                    ptr_expr=deref_expr,
+                ),
+                'field_exprs': usages.field_derefs + usages.method_calls,
+            })
+
+        return results
+
     def _collect_all_matches(self, code: str) -> List[Dict[str, Any]]:
-        """Collect all pattern matches across both sub-patterns."""
+        """Collect all pattern matches across all sub-patterns."""
         matches = []
         matches.extend(self._collect_cast_binding_matches(code))
         matches.extend(self._collect_nested_deref_matches(code))
+        matches.extend(self._collect_unsafe_block_binding_matches(code))
         return matches
 
     # ── Quick pre-filter ─────────────────────────────────────────────────────
@@ -614,9 +810,11 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
     @staticmethod
     def _quick_check(rust_code: str) -> bool:
         """Fast pre-filter to avoid expensive AST analysis on non-matching files."""
-        # Any (*VAR).field pattern in file with extern
-        return (bool(DEREF_FIELD_RE.search(rust_code)) and
-                ('unsafe' in rust_code or 'extern' in rust_code))
+        # Any (*VAR).field pattern OR unsafe block binding in file with extern/unsafe
+        has_pattern = (bool(DEREF_FIELD_RE.search(rust_code)) or
+                       bool(UNSAFE_BLOCK_BINDING_RE.search(rust_code)))
+        has_context = ('unsafe' in rust_code or 'extern' in rust_code)
+        return has_pattern and has_context
 
     # ── find() ───────────────────────────────────────────────────────────────
 
@@ -647,13 +845,21 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
                     f"`let {mut_str}{m['ptr_var']}` cast binding with {n} field "
                     f"deref(s) → hoist to `&{mut_str}*({m['binding'].rhs_expr})`"
                 )
-            else:
+            elif m['pattern'] == 'nested_deref_hoist':
                 n = len(m['uses'])
                 mut_str = "mut " if m['needs_mut'] else ""
                 desc = (
                     f"Line {line}: nested_deref_hoist — "
                     f"`(*(*{m['outer_var']}).{m['inner_field']}).sub` used {n}× "
                     f"→ hoist `let {m['bind_name']} = &{mut_str}*(*{m['outer_var']}).{m['inner_field']}`"
+                )
+            else:  # unsafe_block_to_safe_ref
+                n = len(m['field_exprs'])
+                mut_str = "mut " if m['binding'].is_mut else ""
+                desc = (
+                    f"Line {line}: unsafe_block_to_safe_ref — "
+                    f"`let {mut_str}{m['var_name']} = unsafe {{ &{mut_str}*{m['binding'].ptr_expr} }};` with {n} "
+                    f"safe use(s) → remove unsafe block"
                 )
             results.append((block.start_byte, block.end_byte, desc))
 
@@ -754,6 +960,11 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
                     insertions.extend(new_insertions)
                 elif m['pattern'] == 'nested_deref_hoist':
                     block_lines, new_insertions = self._apply_nested_hoist(
+                        block_lines, orig_lines, block, m, rust_code, indent
+                    )
+                    insertions.extend(new_insertions)
+                elif m['pattern'] == 'unsafe_block_to_safe_ref':
+                    block_lines, new_insertions = self._apply_unsafe_block_binding(
                         block_lines, orig_lines, block, m, rust_code, indent
                     )
                     insertions.extend(new_insertions)
@@ -877,6 +1088,62 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
                 insert_after_line = max(0, stmt_line - 1)
 
         return block_lines, [(insert_after_line, binding_text)]
+
+    def _apply_unsafe_block_binding(
+        self,
+        block_lines: List[str],
+        orig_lines: List[str],
+        block: Any,
+        match: Dict[str, Any],
+        code: str,
+        indent: str,
+    ) -> Tuple[List[str], List[Tuple[int, str]]]:
+        """
+        Apply Pattern C transform: remove the unsafe block from a safe reference binding.
+
+        Transforms:
+          let p_ref = unsafe { &*ptr };    →    let p_ref = &*ptr;
+          let p_ref = unsafe { &mut *ptr };  →  let p_ref = &mut *ptr;
+
+        Returns updated block_lines and list of (after_line, binding_text) insertions (empty).
+        """
+        binding: UnsafeBlockBinding = match['binding']
+        var_name = match['var_name']
+
+        # Get the original declaration text
+        decl_text = self.node_text(binding.decl_node, code)
+
+        # Replace unsafe { ... } with just the content using a regex
+        # This handles various whitespace/formatting variations
+        # Match: unsafe { <content> } and replace with just <content>
+        new_decl = re.sub(
+            r'\bunsafe\s*\{\s*(&(?:mut\s+)?\*\w+)\s*\}',
+            r'\1',
+            decl_text
+        )
+
+        # If no change was made with the basic pattern, try a more general approach
+        if new_decl == decl_text:
+            # Fall back to removing 'unsafe { ' and the closing '}'
+            # This is more forgiving but less precise
+            if 'unsafe {' in decl_text:
+                new_decl = decl_text.replace('unsafe {', '').replace('}', '}', 1)
+                new_decl = new_decl.rstrip()  # Remove trailing space before final ;
+                # Ensure there's a ; at the end
+                if not new_decl.endswith(';'):
+                    new_decl += ';'
+
+        # Find the line containing the declaration and replace it
+        decl_offset = binding.decl_node.start_byte - block.start_byte
+        decl_line_idx = self._byte_offset_to_line_index(orig_lines, decl_offset)
+
+        if decl_line_idx is not None and decl_line_idx < len(block_lines):
+            # Replace the declaration line
+            old_line = block_lines[decl_line_idx]
+            # Simple find-replace of the old declaration with the new one
+            block_lines[decl_line_idx] = old_line.replace(decl_text, new_decl, 1)
+
+        return block_lines, []
 
     @staticmethod
     def _byte_offset_to_line_index(lines: List[str], byte_offset: int) -> Optional[int]:
@@ -1029,5 +1296,74 @@ class FFIUnsafeEliminationPlugin(UnsafePatternPlugin):
         check("B3 nested hoist idempotent",
               self.fix(fixed_b1) == fixed_b1,
               f"second pass changed:\n{self.fix(fixed_b1)}")
+
+        # ── Pattern C tests ──
+
+        # Test C1: Basic unsafe block binding removal
+        code_c1 = '\n'.join([
+            "unsafe extern \"C\" fn isAlterableTable(",
+            "    pTab: *mut Table,",
+            ") -> c_int {",
+            "    let __pTab_ref = unsafe { &*pTab };",
+            "    if __pTab_ref.zName.is_null() {",
+            "        return 0;",
+            "    }",
+            "    return 1;",
+            "}",
+        ])
+        finds_c1 = self.find(code_c1)
+        check("C1 unsafe_block detection", len(finds_c1) >= 1,
+              f"expected >= 1, got {len(finds_c1)}")
+
+        fixed_c1 = self.fix(code_c1)
+        check("C1 unsafe block removed", "let __pTab_ref = &*pTab;" in fixed_c1,
+              f"unsafe block not removed:\n{fixed_c1}")
+        check("C1 safe usage preserved", "__pTab_ref.zName" in fixed_c1,
+              f"field access lost:\n{fixed_c1}")
+
+        # Test C2: Mutable unsafe block binding
+        code_c2 = '\n'.join([
+            "unsafe extern \"C\" fn example(p: *mut Table) -> c_int {",
+            "    let __p_ref = unsafe { &mut *p };",
+            "    __p_ref.field = 5;",
+            "    return 0;",
+            "}",
+        ])
+        finds_c2 = self.find(code_c2)
+        check("C2 mut unsafe_block detection", len(finds_c2) >= 1,
+              f"expected >= 1, got {len(finds_c2)}")
+
+        fixed_c2 = self.fix(code_c2)
+        check("C2 mut unsafe block removed", "let __p_ref = &mut *p;" in fixed_c2,
+              f"mut unsafe block not removed:\n{fixed_c2}")
+
+        # Test C3: Not extern C — should not transform
+        code_c3 = '\n'.join([
+            "unsafe fn internal_only(p: *mut Table) -> c_int {",
+            "    let __p_ref = unsafe { &*p };",
+            "    return __p_ref.field;",
+            "}",
+        ])
+        fixed_c3 = self.fix(code_c3)
+        check("C3 no transform for non-extern",
+              "unsafe { &*p }" in fixed_c3,
+              f"was transformed but shouldn't:\n{fixed_c3}")
+
+        # Test C4: Multiple uses
+        code_c4 = '\n'.join([
+            "unsafe extern \"C\" fn example(p: *mut Table) -> c_int {",
+            "    let __p_ref = unsafe { &*p };",
+            "    let a = __p_ref.field1;",
+            "    let b = __p_ref.field2;",
+            "    let c = __p_ref.field3;",
+            "    return a + b + c;",
+            "}",
+        ])
+        fixed_c4 = self.fix(code_c4)
+        check("C4 multiple uses preserved",
+              "__p_ref.field1" in fixed_c4 and "__p_ref.field2" in fixed_c4,
+              f"field accesses lost:\n{fixed_c4}")
+        check("C4 idempotent", self.fix(fixed_c4) == fixed_c4,
+              f"second pass changed:\n{self.fix(fixed_c4)}")
 
         return all_passed
