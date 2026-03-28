@@ -8,6 +8,14 @@ Specification description
 
 - [Overview](#overview)
 - [Features](#features)
+    - [Feature: clippy_warning_patterns](#clippy_warning_patterns)
+      - [constraint_assign_op_fixed](#constraint_assign_op_fixed)
+      - [constraint_cargo_clippy_src_clean](#constraint_cargo_clippy_src_clean)
+      - [constraint_collapsible_else_if_fixed](#constraint_collapsible_else_if_fixed)
+      - [constraint_idempotent_second_pass](#constraint_idempotent_second_pass)
+      - [constraint_needless_return_fixed](#constraint_needless_return_fixed)
+      - [constraint_plugin_file_exists](#constraint_plugin_file_exists)
+      - [constraint_plugin_loaded_by_list_patterns](#constraint_plugin_loaded_by_list_patterns)
     - [Feature: dry_run_option](#dry_run_option)
       - [constraint_dry_run_no_writes](#constraint_dry_run_no_writes)
       - [constraint_dry_run_summary_output](#constraint_dry_run_summary_output)
@@ -19,6 +27,46 @@ Specification description
       - [constraint_no_verbose_output_without_flag](#constraint_no_verbose_output_without_flag)
 
 ## Features
+
+### Feature: clippy_warning_patterns
+**Pattern plugin fixing clippy::needless_return, assign_op_pattern, collapsible_else_if**
+
+**Goals:**
+- Implement /unsafe_rust_fixer/patterns/clippy_warning_patterns.py (~500 lines) combining three clippy-warning sub-patterns in one plugin class.
+- Sub-pattern 1 needless_return: detect `return <expr>;` as the last expression-statement in a function body and rewrite to bare `<expr>` (remove `return` keyword and trailing semicolon).
+- Sub-pattern 2 assign_op_pattern: detect `VAR = VAR OP EXPR;` where VAR is the same identifier/path and OP is one of +,-,*,/,%,&,|,^,<<,>> and rewrite to `VAR OP= EXPR;`.
+- Sub-pattern 3 collapsible_else_if: detect `else { if COND { ... } }` where the else-block contains only a single if-expression and rewrite to `else if COND { ... }`.
+- All three sub-patterns must be idempotent: a second dry-run pass after fixing must report Occurrences matched: 0 and Fixes skipped (dry-run): 0.
+- After applying the plugin to src/ with --match-patterns=clippy_warning_patterns --fix src/, running `cargo clippy` in $PROJECT_ROOT must emit zero occurrences of clippy::needless_return, clippy::assign_op_pattern, and clippy::collapsible_else_if for files under src/.
+- Print a clear success message (e.g. OK: 0 target clippy warnings in src/) on success and a FAIL message listing remaining warnings on failure.
+
+#### constraint_assign_op_fixed
+**Description:** Behavioral: plugin must rewrite `a = a & mask` to `a &= mask` and `a = a + 1` to `a += 1`
+**Command:** `tmp=$(mktemp /tmp/test_clippy_XXXXXX.rs); printf "pub fn update(mut a: u32, mask: u32) -> u32 {\n    a = a & mask;\n    a = a + 1;\n    a\n}\n" > "$tmp"; python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix "$tmp" > /dev/null 2>&1; result=$(cat "$tmp"); rm -f "$tmp"; echo "$result" | grep -qE "a &= |a \+= " || { echo "FAIL: assign_op_pattern not rewritten to compound assignment"; exit 1; }; echo "OK: assign_op_pattern fixed"`
+
+#### constraint_cargo_clippy_src_clean
+**Description:** Environmental: after applying plugin to src/, check_clippy_warnings.py must report 0 needless_return/assign_op_pattern/collapsible_else_if warnings in src/ files (runs cargo clippy internally)
+**Command:** `cd $PROJECT_ROOT && git checkout -- src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix src/ && python /unsafe_rust_fixer/check_clippy_warnings.py`
+
+#### constraint_collapsible_else_if_fixed
+**Description:** Behavioral: plugin must collapse `else { if COND { } }` to `else if COND { }` when else-block has only one if
+**Command:** `tmp=$(mktemp /tmp/test_clippy_XXXXXX.rs); printf "pub fn cmp(a: i32, b: i32) -> i32 {\n    if a > b {\n        1\n    } else {\n        if a == b {\n            0\n        } else {\n            -1\n        }\n    }\n}\n" > "$tmp"; python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix "$tmp" > /dev/null 2>&1; result=$(cat "$tmp"); rm -f "$tmp"; echo "$result" | grep -q "else if a == b" || { echo "FAIL: collapsible_else_if not collapsed to else if"; exit 1; }; echo "OK: collapsible_else_if fixed"`
+
+#### constraint_idempotent_second_pass
+**Description:** Behavioral+Environmental: after fix pass, second dry-run must show Occurrences matched: 0 and Fixes skipped (dry-run): 0
+**Command:** `cd $PROJECT_ROOT && git checkout -- src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix --dry-run src/ | tee /tmp/clippy_idempotent.txt; grep -q "Occurrences matched: 0" /tmp/clippy_idempotent.txt || { echo "FAIL: expected Occurrences matched: 0 after fix (plugin not idempotent)"; exit 1; }; grep -q "Fixes skipped (dry-run): 0" /tmp/clippy_idempotent.txt || { echo "FAIL: expected Fixes skipped (dry-run): 0 after fix"; exit 1; }; echo "OK: plugin is idempotent"`
+
+#### constraint_needless_return_fixed
+**Description:** Behavioral: plugin must remove `return x;` at end of function body, leaving bare `x`
+**Command:** `tmp=$(mktemp /tmp/test_clippy_XXXXXX.rs); printf "pub fn get_val() -> i32 {\n    let x = 42;\n    return x;\n}\n" > "$tmp"; python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix "$tmp" > /dev/null 2>&1; result=$(cat "$tmp"); rm -f "$tmp"; echo "$result" | grep -q "return x" && { echo "FAIL: needless_return was not removed"; exit 1; }; echo "OK: needless_return fixed"`
+
+#### constraint_plugin_file_exists
+**Description:** Structural: clippy_warning_patterns.py must exist and be at least 400 lines
+**Command:** `test -f /unsafe_rust_fixer/patterns/clippy_warning_patterns.py || { echo "FAIL: clippy_warning_patterns.py plugin file missing"; exit 1; }; wc -l < /unsafe_rust_fixer/patterns/clippy_warning_patterns.py | awk "{ if (\$1 < 400) { print \"FAIL: plugin too short (\" \$1 \" lines, expected ~500)\"; exit 1 } else { print \"OK: plugin exists, \" \$1 \" lines\" } }"`
+
+#### constraint_plugin_loaded_by_list_patterns
+**Description:** Structural: --list-patterns must show clippy_warning_patterns as a loaded plugin
+**Command:** `output=$(python /unsafe_rust_fixer/unsafe-rust-fixer.py --list-patterns 2>&1); echo "$output" | grep -q "clippy_warning_patterns" || { echo "FAIL: clippy_warning_patterns not found in --list-patterns output"; echo "$output"; exit 1; }; echo "OK: clippy_warning_patterns loaded"`
 
 ### Feature: dry_run_option
 **Add --dry-run flag to unsafe-rust-fixer.py: full flow without writing files**
