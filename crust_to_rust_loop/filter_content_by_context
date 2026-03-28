@@ -3,6 +3,11 @@
 Filter and emit project files based on context JSON with recursion depth support.
 
 Usage:
+  # Option 1: Use custom JSON path (no other env vars needed)
+  export CONTEXT_PATH="/path/to/context.json"
+  ./filter_content_by_context.py
+
+  # Option 2: Use function name lookup
   export PORTING_FUNCS="main"
   ./filter_content_by_context.py                      # Emit root function's file
   ./filter_content_by_context.py src/deduplicator.rs  # Emit specific file
@@ -12,7 +17,8 @@ Usage:
   cd /path/to/context-full/.. && PORTING_FUNCS=main ./filter_content_by_context.py
 
 Environment variables:
-  PORTING_FUNCS - The root function name (required)
+  CONTEXT_PATH - Direct path to context JSON file (optional, omits need for other vars)
+  PORTING_FUNCS - The root function name (required if CONTEXT_PATH not set)
   RECURSION_DEPTH - Recursion depth (0=sig only, 1=body+callee sigs, 2=full) [default: 0]
   WORK_DIR - Working directory or project root [default: .]
 
@@ -164,8 +170,7 @@ def apply_recursion_depth(data, depth):
     """Filter data based on recursion depth.
 
     depth=0: Only root function signature (no body, no callees)
-    depth=1: Root function body + callee signatures (no callee bodies)
-    depth=2: Full context (root body + callee bodies) - default
+    depth=1+: Full context (root body + callee bodies from callee_details)
     """
     if depth == 0:
         # Strip function body, keep only signature
@@ -173,18 +178,8 @@ def apply_recursion_depth(data, depth):
         data_copy['source'] = ""
         data_copy['callee_details'] = []
         return data_copy
-    elif depth == 1:
-        # Keep function body, but strip callee bodies
-        data_copy = data.copy()
-        callee_details_copy = []
-        for callee in data.get('callee_details', []):
-            callee_stub = callee.copy()
-            callee_stub['source'] = ""  # Strip body
-            callee_details_copy.append(callee_stub)
-        data_copy['callee_details'] = callee_details_copy
-        return data_copy
     else:
-        # depth=2 or higher: full context (no filtering)
+        # depth=1 or higher: full context (no filtering)
         return data
 
 
@@ -301,15 +296,6 @@ def main():
         print(f"Error: WORK_DIR '{work_dir}' is not a valid directory", file=sys.stderr)
         sys.exit(1)
 
-    # Find project root by locating context-full directory
-    project_root = find_context_dir(work_dir)
-
-    # Get function name from environment
-    function_name = os.environ.get("PORTING_FUNCS")
-    if not function_name:
-        print("Error: PORTING_FUNCS environment variable not set", file=sys.stderr)
-        sys.exit(1)
-
     # Parse command-line arguments
     file_path_arg = None
     depth_arg = None
@@ -331,8 +317,13 @@ def main():
         else:
             i += 1
 
-    # Load the JSON context file matching the function name
-    json_file = find_json_file(project_root, function_name)
+    # Load the JSON context file from hardcoded path
+    json_file = os.path.join(work_dir, "porting_file.json")
+    if not os.path.isfile(json_file):
+        print(f"Error: porting_file.json not found at {json_file}", file=sys.stderr)
+        sys.exit(1)
+    function_name = None
+
     data = load_context_json(json_file)
 
     # Get recursion depth: command-line > environment > JSON default
@@ -415,13 +406,13 @@ def main():
     if apply_fix_code:
         # Apply the fix to the actual source file
         if is_root_file:
-            # Apply fix to the root function
-            # Resolve relative path from project root
-            fix_file_path = os.path.join(project_root, root_file)
+            # Apply fix to porting_file.rs
+            fix_file_path = os.path.join(work_dir, "porting_file.rs")
 
             success = apply_fix_to_file(fix_file_path, data, apply_fix_code)
             if success:
-                print(f"✓ Applied fix to {function_name}", file=sys.stderr)
+                func_label = function_name or root_full_path
+                print(f"✓ Applied fix to {func_label}", file=sys.stderr)
                 return
             else:
                 sys.exit(1)
@@ -512,7 +503,8 @@ def main():
             print()
 
     # Emit success message to stderr
-    print(f"✓ Emitted {file_path} for {function_name}", file=sys.stderr)
+    func_label = function_name or root_full_path
+    print(f"✓ Emitted {file_path} for {func_label}", file=sys.stderr)
 
 
 if __name__ == "__main__":
