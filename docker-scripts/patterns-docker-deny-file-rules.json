@@ -1,0 +1,3 @@
+[
+    { "glob": "/workspace/**", "rules": ["readonly"] }
+]
