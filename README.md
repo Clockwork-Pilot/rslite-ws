@@ -112,6 +112,9 @@ Set permisisons manually in file:
 ## Run ast-rs-shell in docker
 ```bash
 
+# Example of integrated solution
+PORTING_FUNCS=fts3BinCompare ./run-docker-porting.sh cat /workspace/src/ext/fts3/fts3_hash.rs
+
 ./run-docker-patterns.sh "(cd /ra_ap_shell && cargo build --release)"
 
 # run against sqlite rust codebase
