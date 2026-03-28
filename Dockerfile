@@ -51,9 +51,8 @@ ARG HOME=/home/$USERNAME
 RUN useradd -m -u 1000 $USERNAME
 
 # Create workspace and config directories
-RUN mkdir -p /workspace $HOME/ && \
-  chown -R $USERNAME:$USERNAME /workspace $HOME/
-
+RUN mkdir -p $HOME/ && \
+  chown -R $USERNAME:$USERNAME $HOME/
 
 RUN mkdir -p /sqlite && \
   chown -R $USERNAME:$USERNAME /sqlite
@@ -83,9 +82,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-pip \
   python3-venv \
   pinentry-curses \
+  gosu \
   && apt-get clean && rm -rf /var/lib/apt/lists/* 
-
-RUN chown -R $USERNAME:$USERNAME $HOME
 
 RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 	&& ln -s /usr/include/tcl/tclOODecls.h /usr/include/tclOODecls.h \
@@ -100,20 +98,21 @@ RUN usermod -aG tty $USERNAME
 # add claude code path
 ENV PATH="$HOME/.local/bin:$PATH"
 
-COPY docker-scripts/docker-entrypoint.sh /usr/local/bin
+COPY docker-scripts /docker-scripts
+RUN cp /docker-scripts/docker-entrypoint.sh /usr/local/bin
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Install proxy wrapper — intercepts git, gh, cat, sed inside namespaces.
-COPY docker-scripts/proxy_wrapper.py /usr/local/bin/proxy_wrapper.py
+RUN cp /docker-scripts/proxy_wrapper.py /usr/local/bin/proxy_wrapper.py
 RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
-    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/cat \
-    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/ls \
-    && chmod 711 /usr/bin/git /usr/bin/gh /usr/bin/cat /usr/bin/ls
+    && chmod 711 /usr/bin/git /usr/bin/gh
 
 WORKDIR /workspace
-USER $USERNAME
+ENV USERNAME=$USERNAME
+
+USER root
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 

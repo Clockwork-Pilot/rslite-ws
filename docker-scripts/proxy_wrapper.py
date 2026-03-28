@@ -4,6 +4,9 @@ Proxy wrapper — blocks destructive subcommands and applies custom handlers ins
 Installed as /usr/local/bin/<cmd> (takes priority over /usr/bin/<cmd> in PATH).
 Real binary is called directly without sudo.
 
+Every gated command makes effect only after appropriate symlinks created in /usr/local/bin.
+Currentty, no symlinks created for : cat, ls. But support is kept here as examples.
+
 Dispatch order:
   1. CUSTOM_HANDLERS registry  — per-command Python functions (cat, sed, …)
   2. Namespace rule engine      — subcommand/flag deny-lists (git, gh, …)
@@ -103,7 +106,7 @@ def _cat_handler(called_as: str, args: list[str], cwd: str, ns: dict | None) -> 
         for p in paths:
             resolved = os.path.normpath(p if os.path.isabs(p) else os.path.join(cwd, p))
             proc = subprocess.run(
-                ["filter_content_by_context", resolved],
+                ["filter_content_by_context.py", resolved],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
             sys.stdout.write(proc.stdout.decode(errors="replace"))
