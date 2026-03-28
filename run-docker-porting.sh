@@ -82,7 +82,7 @@ docker run -it \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
-    -v $(pwd)/$PORTING_FILE:/workspace/porting_file.rs:Z \
-    -v $(pwd)/$JSON_FILE:/workspace/porting_file.json:ro,Z \
+    -v $(pwd)/crust-sqlite:/x/y/z:ro,Z \
+    -v $(pwd)/crust-sqlite/$PORTING_FILE:/workspace/$PORTING_FILE:Z \
     -v $(pwd)/crust_to_rust_loop:/crust_to_rust_loop:ro,Z \
     layered-sqlite-crust "${CMD[@]}"
