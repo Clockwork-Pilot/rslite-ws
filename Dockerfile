@@ -103,12 +103,14 @@ ENV PATH="$HOME/.local/bin:$PATH"
 COPY docker-scripts/docker-entrypoint.sh /usr/local/bin
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Install git/gh proxy wrapper — blocks commit, push, rebase, etc.
+# Install proxy wrapper — intercepts git, gh, cat, sed inside namespaces.
 COPY docker-scripts/proxy_wrapper.py /usr/local/bin/proxy_wrapper.py
 RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
-    && chmod 711 /usr/bin/git /usr/bin/gh
+    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/cat \
+    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/ls \
+    && chmod 711 /usr/bin/git /usr/bin/gh /usr/bin/cat /usr/bin/ls
 
 WORKDIR /workspace
 USER $USERNAME

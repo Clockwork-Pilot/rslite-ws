@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """
-Git proxy wrapper — blocks destructive subcommands inside Docker.
-Installed as /usr/local/bin/git (takes priority over /usr/bin/git in PATH).
+Proxy wrapper — blocks destructive subcommands and applies custom handlers inside Docker.
+Installed as /usr/local/bin/<cmd> (takes priority over /usr/bin/<cmd> in PATH).
 Real binary is called directly without sudo.
+
+Dispatch order:
+  1. CUSTOM_HANDLERS registry  — per-command Python functions (cat, sed, …)
+  2. Namespace rule engine      — subcommand/flag deny-lists (git, gh, …)
+  3. Pass-through               — exec real binary unchanged
 """
 import re
+import subprocess
 import sys
 import os
+from typing import Callable
 
 REAL_BINARY_DIR = "/usr/bin"
+LS_SOURCE_PATH = "/x/y/z"
+LS_TARGET_PATH = os.environ.get("WORKSPACE_ROOT", "/workspace")
 
 CONFIG = {
     "namespaces": {
@@ -38,6 +47,10 @@ CONFIG = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def match_namespace(cwd: str) -> dict | None:
     for ns in CONFIG["namespaces"].values():
         for path in ns["paths"]:
@@ -46,34 +59,130 @@ def match_namespace(cwd: str) -> dict | None:
     return None
 
 
+def _exec_real(called_as: str, args: list[str]) -> None:
+    """Replace current process with the real binary — never returns."""
+    real_binary = os.path.join(REAL_BINARY_DIR, called_as)
+    os.execv(real_binary, [real_binary] + args)
+
+
+def _block(msg: str) -> None:
+    print(f"[proxy_wrapper] blocked: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Custom command handlers
+#
+# Signature: handler(called_as, args, cwd, ns) -> None
+#   called_as : basename the script was invoked as ("cat", "sed", …)
+#   args      : sys.argv[1:]
+#   cwd       : os.getcwd() at invocation time
+#   ns        : matched namespace dict, or None if no namespace matched
+#
+# Each handler MUST either call _exec_real() (pass-through) or sys.exit().
+# ---------------------------------------------------------------------------
+
+def _cat_handler(called_as: str, args: list[str], cwd: str, ns: dict | None) -> None:
+    """cat handler — files under WORKSPACE_ROOT are read via filter_content_by_context.
+
+    Non-flag arguments that resolve to paths inside LS_TARGET_PATH (WORKSPACE_ROOT)
+    are passed one-by-one to `filter_content_by_context <path>`.
+    Everything else is handed to the real cat binary unchanged.
+    """
+    _ = ns
+    workspace = LS_TARGET_PATH
+
+    def _in_workspace(p: str) -> bool:
+        resolved = os.path.normpath(p if os.path.isabs(p) else os.path.join(cwd, p))
+        return resolved == workspace or resolved.startswith(workspace + "/")
+
+    paths = [a for a in args if not a.startswith("-")]
+
+    if any(_in_workspace(p) for p in paths):
+        rc = 0
+        for p in paths:
+            resolved = os.path.normpath(p if os.path.isabs(p) else os.path.join(cwd, p))
+            proc = subprocess.run(
+                ["filter_content_by_context", resolved],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            sys.stdout.write(proc.stdout.decode(errors="replace"))
+            sys.stderr.write(proc.stderr.decode(errors="replace"))
+            rc = proc.returncode
+        sys.exit(rc)
+
+    _exec_real(called_as, args)
+
+
+def _ls_handler(called_as: str, args: list[str], cwd: str, ns: dict | None) -> None:
+    """ls handler — replaces LS_SOURCE_PATH with LS_TARGET_PATH in output.
+
+    LS_SOURCE_PATH is the real on-disk root ("/x/y/z").
+    LS_TARGET_PATH is read from the WORKSPACE_ROOT env var (default "/workspace").
+    Outside a namespace the real binary is exec'd unchanged.
+    """
+    _ = (cwd, ns)
+    # Rewrite path arguments: /workspace (LS_TARGET_PATH) -> /x/y/z (LS_SOURCE_PATH)
+    def _rewrite_arg(a: str) -> str:
+        norm = a.rstrip("/")
+        if norm == LS_TARGET_PATH or norm.startswith(LS_TARGET_PATH + "/"):
+            return LS_SOURCE_PATH + a[len(LS_TARGET_PATH):]
+        return a
+
+    args = [_rewrite_arg(a) for a in args]
+    real_binary = os.path.join(REAL_BINARY_DIR, called_as)
+    proc = subprocess.run([real_binary] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    stdout = proc.stdout.decode(errors="replace").replace(LS_SOURCE_PATH, LS_TARGET_PATH)
+    stderr = proc.stderr.decode(errors="replace").replace(LS_SOURCE_PATH, LS_TARGET_PATH)
+
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+    sys.exit(proc.returncode)
+
+
+# Registry: map command basename -> handler function.
+# Add entries here to intercept additional commands.
+CUSTOM_HANDLERS: dict[str, Callable[[str, list[str], str, dict | None], None]] = {
+    "cat": _cat_handler,
+    "ls":  _ls_handler,
+}
+
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     called_as = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
-    subcommand = args[0] if args else ""
-
     cwd = os.getcwd()
     ns = match_namespace(cwd)
+
+    # 1. Custom handler dispatch
+    handler = CUSTOM_HANDLERS.get(called_as)
+    if handler is not None:
+        handler(called_as, args, cwd, ns)
+        return  # handler must exec or exit; this line is a safety fallback
+
+    # 2. Namespace rule engine (subcommand / flag deny-lists)
     if ns is None:
-        # No namespace matched — allow everything.
-        real_binary = os.path.join(REAL_BINARY_DIR, called_as)
-        os.execv(real_binary, [real_binary] + args)
+        _exec_real(called_as, args)
+        return
 
     rule = ns.get(called_as)
     if rule:
+        subcommand = args[0] if args else ""
         if subcommand in rule["denied_subcommands"]:
-            print(f"[proxy_wrapper] blocked: '{called_as} {subcommand}' is not allowed in '{cwd}'.",
-                  file=sys.stderr)
-            sys.exit(1)
+            _block(f"'{called_as} {subcommand}' is not allowed in '{cwd}'.")
 
         args_str = " ".join(args)
         for pattern in rule["denied_patterns"]:
             if re.search(pattern, args_str):
-                print(f"[proxy_wrapper] blocked: forbidden flag pattern '{pattern}'.",
-                      file=sys.stderr)
-                sys.exit(1)
+                _block(f"forbidden flag pattern '{pattern}'.")
 
-    real_binary = os.path.join(REAL_BINARY_DIR, called_as)
-    os.execv(real_binary, [real_binary] + args)
+    # 3. Pass-through
+    _exec_real(called_as, args)
 
 
 if __name__ == "__main__":

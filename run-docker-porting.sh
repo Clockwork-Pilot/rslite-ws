@@ -14,7 +14,7 @@ MODEL=${MODEL:-"claude-haiku-4-5"}
 
 # if not defined exit with error
 if [ -z "${PORTING_FUNCS:-}" ]; then
-    echo "ERROR: PORTING_FUNCS, PORTING_FILE and JSON_FILE must be defined"
+    echo "ERROR: PORTING_FUNCS must be defined"
     exit 1
 fi
 
@@ -42,6 +42,7 @@ ENTRYPOINT_SCRIPT=$(cat <<EOF
 
 
 mkdir -p ~/.claude
+
 cp /crust_to_rust_loop/CLAUDE.md /workspace
 
 # assign default value if file is empty
@@ -51,6 +52,8 @@ export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from conf
 export PATH="/ra_ap_shell/target/release:\$PATH"
 export PATH="/crust_to_rust_loop:\$PATH"
 echo 'export PATH="\$PATH"' >> ~/.bashrc
+
+export WORK_DIR=/
 
 cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
 (
@@ -76,13 +79,13 @@ CMD=(bash -c "$ENTRYPOINT_SCRIPT")
 docker run -it \
     --user 1000:1000 \
     -e PORTING_FUNCS \
-    -e PORTING_FILE \
+    -e PORTING_FILE=porting_file.json \
     -e WORKSPACE_ROOT=/workspace \
     -e CLAUDE_PROJECT_ROOT=/workspace \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/crust-sqlite:/x/y/z:ro,Z \
-    -v $(pwd)/crust-sqlite/$PORTING_FILE:/workspace/$PORTING_FILE:Z \
+    -v $(pwd)/context-full/$PORTING_FILE:/porting_file.json:ro,Z \
     -v $(pwd)/crust_to_rust_loop:/crust_to_rust_loop:ro,Z \
     layered-sqlite-crust "${CMD[@]}"
