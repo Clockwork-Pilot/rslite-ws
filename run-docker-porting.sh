@@ -2,26 +2,35 @@
 
 set -euo pipefail
 
-
+CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-port/.claude.json"
+CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-port/.claude"
 # use default if not provided externally
 MODEL=${MODEL:-"claude-haiku-4-5"}
 
-CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-port/.claude.json"
-CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-port/.claude"
-CONTEXT_FULL=${CONTEXT_FULL:-"$(pwd)/context-full"}
-PATCH_DIR="$(pwd)/patches"
-mkdir -p "$PATCH_DIR"
-
-# User should provide following variables:
+# Pipeline require following arguments:
 # - PORTING_FUNCS - function name to port
 # - PORTING_FILE - relative source path where function from PORTING_FUNCS is defined
 # - JSON_FILE - corresponding relative json file from full-context/
 
 # if not defined exit with error
-if [ -z "${PORTING_FUNCS:-}" ] || [ -z "${PORTING_FILE:-}" ] || [ -z "${JSON_FILE:-}" ]; then
+if [ -z "${PORTING_FUNCS:-}" ]; then
     echo "ERROR: PORTING_FUNCS, PORTING_FILE and JSON_FILE must be defined"
     exit 1
 fi
+
+echo "Auto-detected:"
+
+# prepare porting arguments: get corresponding json file, ensude we use just one result
+JSON_FILE=$(find ./context-full/ -name "*$PORTING_FUNCS*" | head -1)
+echo "JSON_FILE: $JSON_FILE"
+
+# using jq - get json field "file":
+PORTING_FILE=$(jq -r '.file' "$JSON_FILE")
+echo "PORTING_FILE: $PORTING_FILE"
+
+# mount support
+mkdir -p $CLAUDE_CREDENTIALS_DIR
+[ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
 
 if [ $# -gt 0 ]; then
     ENTRYPOINT_CMD="$*"
@@ -41,11 +50,7 @@ cp /crust_to_rust_loop/CLAUDE.md /workspace
 export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):/unsafe_rust_fixer:\$PATH"
 export PATH="/ra_ap_shell/target/release:\$PATH"
 export PATH="/crust_to_rust_loop:\$PATH"
-
 echo 'export PATH="\$PATH"' >> ~/.bashrc
-echo 'export CLAUDE_PROJECT_ROOT=/workspace' >> ~/.bashrc
-echo 'export CLAUDE_PLUGIN_ROOT=/plugin' >> ~/.bashrc
-echo 'export TEST_LOG=/workspace/log.txt' >> ~/.bashrc
 
 cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
 (
@@ -58,8 +63,8 @@ cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
 CREATE_VENV_EOF
 chmod +x ~/create-venv-docker.sh
 
-source ~/.bashrc
 source /ra_ap_shell/.venv/bin/activate
+echo 'source /ra_ap_shell/.venv/bin/activate' >> ~/.bashrc
 
 $ENTRYPOINT_CMD
 EOF
@@ -72,6 +77,9 @@ docker run -it \
     --user 1000:1000 \
     -e PORTING_FUNCS \
     -e PORTING_FILE \
+    -e WORKSPACE_ROOT=/workspace \
+    -e CLAUDE_PROJECT_ROOT=/workspace \
+    -e CLAUDE_PLUGIN_ROOT=/plugin \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/crust-sqlite:/x/y:Z \

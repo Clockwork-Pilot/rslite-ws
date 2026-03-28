@@ -6,6 +6,7 @@ CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-patterns/.credenti
 # use default if not provided externally
 MODEL=${MODEL:-"claude-haiku-4-5"}
 
+# mount support
 mkdir -p $CLAUDE_CREDENTIALS_DIR
 [ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
 
