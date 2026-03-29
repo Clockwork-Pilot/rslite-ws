@@ -1,3 +1,4 @@
 [
-    { "glob": "/workspace/**", "rules": ["readonly"] }
+    { "deny-rule": ["/workspace/**"], "reason": "readonly" },
+    { "whitelist-rule": ["/workspace/1"] }
 ]

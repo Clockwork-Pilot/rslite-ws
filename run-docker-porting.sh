@@ -20,6 +20,11 @@ fi
 
 # prepare porting arguments: get corresponding json file, ensude we use just one result
 JSON_FILE=$(find ./context-full/ -name "*$PORTING_FUNCS*" | head -1)
+# if no file found, exit with error
+if [ -z "$JSON_FILE" ]; then
+    echo "ERROR: No json file $JSON_FILE found for function $PORTING_FUNCS"
+    exit 1
+fi
 
 # using jq - get json field "file":
 export PORTING_FILE=$(jq -r '.file' "$JSON_FILE")
@@ -43,8 +48,10 @@ docker run -it \
     -e CONTEXT_SEED=/context_seed.json \
     -e WORK_DIR=/x/y \
     -e WORKSPACE_ROOT=/workspace \
+    -e CLAUDE_FILE_RULES=/config/deny-file-rules.json \
     -e CLAUDE_PROJECT_ROOT=/ra_ap_shell \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
+    -v $(pwd)/docker-scripts/porting/porting-docker-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \

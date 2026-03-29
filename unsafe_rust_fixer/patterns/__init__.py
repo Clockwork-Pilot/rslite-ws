@@ -1,4 +1,6 @@
 """Unsafe pattern detection plugins."""
-from .. import base
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-__all__ = ['base']
+__all__ = []
