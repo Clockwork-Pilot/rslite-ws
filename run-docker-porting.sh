@@ -35,7 +35,7 @@ else
     ENTRYPOINT_CMD="claude --dangerously-skip-permissions --model $MODEL --plugin-dir /plugin"
 fi
 
-CMD=(bash -c "/docker-scripts/porting/user-porting-entrypoint.sh ; $ENTRYPOINT_CMD")
+CMD=(bash -c "source /docker-scripts/porting/user-porting-entrypoint.sh ; $ENTRYPOINT_CMD")
 
 docker run -it \
     -e PORTING_FILE \
