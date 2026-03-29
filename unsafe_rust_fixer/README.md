@@ -16,6 +16,41 @@ This directory contains the pluggable unsafe pattern detection and fixing framew
    - Automatically discovered and loaded at runtime
    - Pattern names derived from class names (snake_case)
 
+## Execution Model
+
+### Pattern priority — order of application
+
+Patterns are applied **sequentially by priority (descending)** across the project. Higher priority runs first:
+
+```
+priority 14  raw_ptr_deref_field_chain        ← applied first
+priority 10  zero_init_with_memset
+priority  8  simplify_constant_offset_cast
+priority  0  (default — everything else)      ← applied last
+```
+
+Each pattern fully completes across **all files** before the next pattern starts. This guarantees that pattern N+1 always sees the output of pattern N.
+
+Set priority by overriding the `priority` property (default is `0`):
+
+```python
+@property
+def priority(self) -> int:
+    return 10  # runs before default-priority patterns
+```
+
+Use higher priority when your pattern produces output that another pattern depends on, or when it makes structural changes that lower-priority patterns should see.
+
+### File parallelism
+
+Within each pattern, files are processed **in parallel** (multiprocessing pool). Files are independent — no pattern reads output written to a different file by the same pattern run.
+
+```
+pattern (priority 14):  [file_a, file_b, file_c, ...]  ← parallel
+pattern (priority 10):  [file_a, file_b, file_c, ...]  ← parallel
+...
+```
+
 ## Creating New Plugins
 
 ### Basic Structure
