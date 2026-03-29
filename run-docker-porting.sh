@@ -42,7 +42,7 @@ docker run -it \
     -e CONTEXT_SEED=/context_seed.json \
     -e WORK_DIR=/x/y \
     -e WORKSPACE_ROOT=/workspace \
-    -e CLAUDE_PROJECT_ROOT=/workspace \
+    -e CLAUDE_PROJECT_ROOT=/ra_ap_shell \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
