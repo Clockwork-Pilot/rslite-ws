@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-echo "$(whoami)"
-
 CLAUDE_LOCAL_JSON="$(pwd)/docker-claude-artifacts-c2rust-port/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-claude-artifacts-c2rust-port/.credentials"
 # use default if not provided externally
@@ -20,15 +18,12 @@ if [ -z "${PORTING_FUNCS:-}" ]; then
     exit 1
 fi
 
-echo "Auto-detected:"
-
 # prepare porting arguments: get corresponding json file, ensude we use just one result
 JSON_FILE=$(find ./context-full/ -name "*$PORTING_FUNCS*" | head -1)
-echo "JSON_FILE: $JSON_FILE"
 
 # using jq - get json field "file":
 export PORTING_FILE=$(jq -r '.file' "$JSON_FILE")
-echo "PORTING_FILE: $PORTING_FILE"
+echo "Detected PORTING_FILE: $PORTING_FILE"
 
 # mount support
 mkdir -p $CLAUDE_CREDENTIALS_DIR
@@ -49,7 +44,7 @@ docker run -it \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
-    -v $(pwd)/crust-sqlite:/x/y/z:ro,Z \
+    -v $(pwd)/crust-sqlite:/x/y/z:Z \
     -v $(pwd)/$JSON_FILE:/porting_file.json:ro,Z \
     -v $(pwd)/crust-sqlite/$PORTING_FILE:/workspace/$PORTING_FILE:rw,Z \
     -v $(pwd)/crust_to_rust_loop:/crust_to_rust_loop:ro,Z \

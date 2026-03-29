@@ -19,6 +19,10 @@ export WORK_DIR=/
 cp /docker-scripts/porting/create-porting-venv.sh ~/create-venv-docker.sh
 chmod +x ~/create-venv-docker.sh
 
+echo "(cd /x/y/z && ./build_all.sh)" > ~/xyz
+chmod +x ~/xyz
+ln -sf ~/xyz ~/.local/bin/test-sqlite
+
 source /ra_ap_shell/.venv/bin/activate
 
 # write to file ~/.bashrc
