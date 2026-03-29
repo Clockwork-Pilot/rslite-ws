@@ -46,9 +46,9 @@ docker run -it \
     -e WORKSPACE_ROOT=/workspace \
     -e CLAUDE_PROJECT_ROOT=/workspace \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
-    -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
+    -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/crust-sqlite:/x/y/z:Z \
     -v $(pwd)/$JSON_FILE:/context_seed.json:ro,Z \
