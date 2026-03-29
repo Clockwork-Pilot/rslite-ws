@@ -39,6 +39,7 @@ CMD=(bash -c "source /docker-scripts/porting/user-porting-entrypoint.sh ; $ENTRY
 
 docker run -it \
     -e PORTING_FILE \
+    -e PORTING_FUNCS \
     -e CONTEXT_SEED=/context_seed.json \
     -e WORK_DIR=/x/y \
     -e WORKSPACE_ROOT=/workspace \
@@ -53,3 +54,7 @@ docker run -it \
     -v $(pwd)/crust-sqlite/$PORTING_FILE:/workspace/$PORTING_FILE:rw,Z \
     -v $(pwd)/crust_to_rust_loop:/crust_to_rust_loop:ro,Z \
     layered-sqlite-crust "${CMD[@]}"
+
+# Load y2: skills use knowledge tools to ensure you have valid spec task-spec.k.json and knowledge documents task-spec.k.md.
+# Add feature: make unsafe function i specified in PORTING_FUNCS env var, from file PORTING_FILE env var  to safe rust. 
+# add a single constraint `test-sqlite` as is, in system path. do not edit other files in /workspace directory except of $PORTING_FILE. 
