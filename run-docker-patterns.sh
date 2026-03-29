@@ -16,39 +16,10 @@ else
     ENTRYPOINT_CMD="claude --dangerously-skip-permissions --model $MODEL --plugin-dir /plugin"
 fi
 
-ENTRYPOINT_SCRIPT=$(cat <<EOF
 
-
-mkdir -p ~/.claude
-
-# assign default value if file is empty
-[ -s "\$HOME/.claude.json" ] || printf '{}\n' > "\$HOME/.claude.json"
-
-export PATH="\$(python3 -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):/unsafe_rust_fixer:\$PATH"
-echo "export PATH=\"\$PATH\"" >> ~/.bashrc
-
-cat > ~/create-venv-docker.sh <<'CREATE_VENV_EOF'
-(
-    python3 -m venv /unsafe_rust_fixer/.venv &&
-    source /unsafe_rust_fixer/.venv/bin/activate &&
-    pip install -r /unsafe_rust_fixer/requirements.txt &&
-    pip install -r /plugin/knowledge_tool/requirements.txt &&
-    pip install -r /plugin/requirements.txt
-)
-CREATE_VENV_EOF
-chmod +x ~/create-venv-docker.sh
-
-source /unsafe_rust_fixer/.venv/bin/activate
-echo 'source /unsafe_rust_fixer/.venv/bin/activate' >> ~/.bashrc
-
-$ENTRYPOINT_CMD
-EOF
-)
-
-CMD=(bash -c "$ENTRYPOINT_SCRIPT")
+CMD=(bash -c "source /docker-scripts/patterns/user-patterns-entrypoint.sh ; $ENTRYPOINT_CMD")
 
 docker run -it --rm \
-    --user 1000:1000 \
     -e CLAUDE_PROJECT_ROOT=/unsafe_rust_fixer \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -e WORKSPACE_ROOT=/workspace \

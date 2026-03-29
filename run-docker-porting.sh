@@ -20,6 +20,11 @@ fi
 
 # prepare porting arguments: get corresponding json file, ensude we use just one result
 JSON_FILE=$(find ./context-full/ -name "*$PORTING_FUNCS*" | head -1)
+# if no file found, exit with error
+if [ -z "$JSON_FILE" ]; then
+    echo "ERROR: No json file $JSON_FILE found for function $PORTING_FUNCS"
+    exit 1
+fi
 
 # using jq - get json field "file":
 export PORTING_FILE=$(jq -r '.file' "$JSON_FILE")
