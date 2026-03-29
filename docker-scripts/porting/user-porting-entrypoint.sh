@@ -25,7 +25,7 @@ rm -f $WORKSPACE_ROOT/CLAUDE.md
 cp /crust_to_rust_loop/CLAUDE.md $WORKSPACE_ROOT
 
 
-echo "(cd /x/y && ./build_all.sh)" > ~/xyz
+echo "cd /x/y && ./build_all.sh" > ~/xyz
 chmod +x ~/xyz
 ln -sf ~/xyz ~/.local/bin/test-sqlite
 
