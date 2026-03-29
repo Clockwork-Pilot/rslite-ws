@@ -24,7 +24,7 @@ docker run -it --rm \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -e WORKSPACE_ROOT=/workspace \
     -e CLAUDE_FILE_RULES=/config/deny-file-rules.json \
-    -v $(pwd)/docker-scripts/patterns-docker-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
+    -v $(pwd)/docker-scripts/patterns/patterns-docker-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/unsafe_rust_fixer:/unsafe_rust_fixer:Z \

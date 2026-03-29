@@ -47,8 +47,10 @@ docker run -it \
     -e CONTEXT_SEED=/context_seed.json \
     -e WORK_DIR=/x/y \
     -e WORKSPACE_ROOT=/workspace \
+    -e CLAUDE_FILE_RULES=/config/deny-file-rules.json \
     -e CLAUDE_PROJECT_ROOT=/ra_ap_shell \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
+    -v $(pwd)/docker-scripts/porting/porting-docker-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
