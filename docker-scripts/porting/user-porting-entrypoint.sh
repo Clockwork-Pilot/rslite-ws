@@ -10,16 +10,16 @@ PATH="/unsafe_rust_fixer:$PATH"
 PATH="/ra_ap_shell:/ra_ap_shell/target/release:$PATH"
 export PATH="/crust_to_rust_loop:$PATH"
 
-export WORK_DIR=/x/y/z
+export WORK_DIR=/x/y
 
-# loop over files in /x/y/z directory, for every file run filter_content_by_context <filename> > /workspace/<filename> 
-# filename should be full patyh relatively to base dir '/x/y/z'
-/docker-scripts/create-context-mirror.sh /x/y/z $WORKSPACE_ROOT
+# loop over files in /x/y directory, for every file run filter_content_by_context <filename> > /workspace/<filename> 
+# filename should be full patyh relatively to base dir '/x/y'
+/docker-scripts/create-context-mirror.sh /x/y $WORKSPACE_ROOT
 
 cp /docker-scripts/porting/create-porting-venv.sh ~/create-venv-docker.sh
 chmod +x ~/create-venv-docker.sh
 
-echo "(cd /x/y/z && ./build_all.sh)" > ~/xyz
+echo "(cd /x/y && ./build_all.sh)" > ~/xyz
 chmod +x ~/xyz
 ln -sf ~/xyz ~/.local/bin/test-sqlite
 

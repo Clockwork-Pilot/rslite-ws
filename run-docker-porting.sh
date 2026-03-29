@@ -35,14 +35,12 @@ else
     ENTRYPOINT_CMD="claude --dangerously-skip-permissions --model $MODEL --plugin-dir /plugin"
 fi
 
-
-
 CMD=(bash -c "/docker-scripts/porting/user-porting-entrypoint.sh ; $ENTRYPOINT_CMD")
 
 docker run -it \
     -e PORTING_FILE \
     -e CONTEXT_SEED=/context_seed.json \
-    -e WORK_DIR=/x/y/z \
+    -e WORK_DIR=/x/y \
     -e WORKSPACE_ROOT=/workspace \
     -e CLAUDE_PROJECT_ROOT=/workspace \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
@@ -50,7 +48,7 @@ docker run -it \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/ra_ap_shell:/ra_ap_shell:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
-    -v $(pwd)/crust-sqlite:/x/y/z:Z \
+    -v $(pwd)/crust-sqlite:/x/y:Z \
     -v $(pwd)/$JSON_FILE:/context_seed.json:ro,Z \
     -v $(pwd)/crust-sqlite/$PORTING_FILE:/workspace/$PORTING_FILE:rw,Z \
     -v $(pwd)/crust_to_rust_loop:/crust_to_rust_loop:ro,Z \

@@ -19,7 +19,7 @@ import os
 from typing import Callable
 
 REAL_BINARY_DIR = "/usr/bin"
-LS_SOURCE_PATH = "/x/y/z"
+LS_SOURCE_PATH = "/x/y"
 LS_TARGET_PATH = os.environ.get("WORKSPACE_ROOT", "/workspace")
 
 CONFIG = {
@@ -120,12 +120,12 @@ def _cat_handler(called_as: str, args: list[str], cwd: str, ns: dict | None) -> 
 def _ls_handler(called_as: str, args: list[str], cwd: str, ns: dict | None) -> None:
     """ls handler — replaces LS_SOURCE_PATH with LS_TARGET_PATH in output.
 
-    LS_SOURCE_PATH is the real on-disk root ("/x/y/z").
+    LS_SOURCE_PATH is the real on-disk root ("/x/y").
     LS_TARGET_PATH is read from the WORKSPACE_ROOT env var (default "/workspace").
     Outside a namespace the real binary is exec'd unchanged.
     """
     _ = (cwd, ns)
-    # Rewrite path arguments: /workspace (LS_TARGET_PATH) -> /x/y/z (LS_SOURCE_PATH)
+    # Rewrite path arguments: /workspace (LS_TARGET_PATH) -> /x/y (LS_SOURCE_PATH)
     def _rewrite_arg(a: str) -> str:
         norm = a.rstrip("/")
         if norm == LS_TARGET_PATH or norm.startswith(LS_TARGET_PATH + "/"):
