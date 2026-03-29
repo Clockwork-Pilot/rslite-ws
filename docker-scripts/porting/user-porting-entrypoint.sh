@@ -6,7 +6,6 @@ chmod +x ~/create-venv-docker.sh
 
 mkdir -p ~/.claude
 
-cp /crust_to_rust_loop/CLAUDE.md $WORKSPACE_ROOT
 
 # assign default value if file is empty
 [ -s "$HOME/.claude.json" ] || printf '{}\n' > "$HOME/.claude.json"
@@ -21,9 +20,15 @@ export WORK_DIR=/x/y
 # filename should be full patyh relatively to base dir '/x/y'
 /docker-scripts/create-context-mirror.sh /x/y $WORKSPACE_ROOT
 
+rm -f $WORKSPACE_ROOT/CLAUDE.md
+
+cp /crust_to_rust_loop/CLAUDE.md $WORKSPACE_ROOT
+
+
 echo "(cd /x/y && ./build_all.sh)" > ~/xyz
 chmod +x ~/xyz
 ln -sf ~/xyz ~/.local/bin/test-sqlite
+
 
 # write to file ~/.bashrc
 cat >> ~/.bashrc << 'EOF'
