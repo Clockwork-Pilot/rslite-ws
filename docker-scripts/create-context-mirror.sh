@@ -26,7 +26,7 @@ process_file() {
     local dst_file="$TO_DIR/$rel_path"
     mkdir -p "$(dirname "$dst_file")"
 
-    if ! filter_content_by_context.py "$src_file" > "$dst_file" 2>/dev/null; then
+    if ! filter_content_by_context.py "$rel_path" > "$dst_file" 2>/dev/null; then
         rm -f "$dst_file"
         return
     fi

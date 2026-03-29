@@ -10,7 +10,7 @@ PATH="/unsafe_rust_fixer:$PATH"
 PATH="/ra_ap_shell:/ra_ap_shell/target/release:$PATH"
 export PATH="/crust_to_rust_loop:$PATH"
 
-export WORK_DIR=/
+export WORK_DIR=/x/y/z
 
 # loop over files in /x/y/z directory, for every file run filter_content_by_context <filename> > /workspace/<filename> 
 # filename should be full patyh relatively to base dir '/x/y/z'
