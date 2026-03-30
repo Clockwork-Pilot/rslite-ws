@@ -3,5 +3,4 @@
 __pycache__
 .claude.local.json
 .credentials/
-crust-sqlite/
 

@@ -4,3 +4,6 @@
 [submodule "claude-plugin"]
 	path = claude-plugin
 	url = git@github.com:YaroslavLitvinov/y2-claude-plugin.git
+[submodule "crust-sqlite"]
+	path = crust-sqlite
+	url = git@github.com:YuraLitvinov/crust-sqlite.git
