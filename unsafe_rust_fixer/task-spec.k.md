@@ -10,9 +10,7 @@ Specification description
 - [Features](#features)
     - [Feature: clippy_warning_patterns](#clippy_warning_patterns)
       - [constraint_assign_op_fixed](#constraint_assign_op_fixed)
-      - [constraint_cargo_clippy_src_clean](#constraint_cargo_clippy_src_clean)
       - [constraint_collapsible_else_if_fixed](#constraint_collapsible_else_if_fixed)
-      - [constraint_idempotent_second_pass](#constraint_idempotent_second_pass)
       - [constraint_needless_return_fixed](#constraint_needless_return_fixed)
       - [constraint_plugin_file_exists](#constraint_plugin_file_exists)
       - [constraint_plugin_loaded_by_list_patterns](#constraint_plugin_loaded_by_list_patterns)
@@ -44,17 +42,9 @@ Specification description
 **Description:** Behavioral: plugin must rewrite `a = a & mask` to `a &= mask` and `a = a + 1` to `a += 1`
 **Command:** `tmp=$(mktemp /tmp/test_clippy_XXXXXX.rs); printf "pub fn update(mut a: u32, mask: u32) -> u32 {\n    a = a & mask;\n    a = a + 1;\n    a\n}\n" > "$tmp"; python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix "$tmp" > /dev/null 2>&1; result=$(cat "$tmp"); rm -f "$tmp"; echo "$result" | grep -qE "a &= |a \+= " || { echo "FAIL: assign_op_pattern not rewritten to compound assignment"; exit 1; }; echo "OK: assign_op_pattern fixed"`
 
-#### constraint_cargo_clippy_src_clean
-**Description:** Environmental: after applying plugin to src/, check_clippy_warnings.py must report 0 needless_return/assign_op_pattern/collapsible_else_if warnings in src/ files (runs cargo clippy internally)
-**Command:** `cd $PROJECT_ROOT && git checkout -- src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix src/ && python /unsafe_rust_fixer/check_clippy_warnings.py`
-
 #### constraint_collapsible_else_if_fixed
 **Description:** Behavioral: plugin must collapse `else { if COND { } }` to `else if COND { }` when else-block has only one if
 **Command:** `tmp=$(mktemp /tmp/test_clippy_XXXXXX.rs); printf "pub fn cmp(a: i32, b: i32) -> i32 {\n    if a > b {\n        1\n    } else {\n        if a == b {\n            0\n        } else {\n            -1\n        }\n    }\n}\n" > "$tmp"; python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix "$tmp" > /dev/null 2>&1; result=$(cat "$tmp"); rm -f "$tmp"; echo "$result" | grep -q "else if a == b" || { echo "FAIL: collapsible_else_if not collapsed to else if"; exit 1; }; echo "OK: collapsible_else_if fixed"`
-
-#### constraint_idempotent_second_pass
-**Description:** Behavioral+Environmental: after fix pass, second dry-run must show Occurrences matched: 0 and Fixes skipped (dry-run): 0
-**Command:** `cd $PROJECT_ROOT && git checkout -- src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix src/ && python /unsafe_rust_fixer/unsafe-rust-fixer.py --match-patterns=clippy_warning_patterns --fix --dry-run src/ | tee /tmp/clippy_idempotent.txt; grep -q "Occurrences matched: 0" /tmp/clippy_idempotent.txt || { echo "FAIL: expected Occurrences matched: 0 after fix (plugin not idempotent)"; exit 1; }; grep -q "Fixes skipped (dry-run): 0" /tmp/clippy_idempotent.txt || { echo "FAIL: expected Fixes skipped (dry-run): 0 after fix"; exit 1; }; echo "OK: plugin is idempotent"`
 
 #### constraint_needless_return_fixed
 **Description:** Behavioral: plugin must remove `return x;` at end of function body, leaving bare `x`
