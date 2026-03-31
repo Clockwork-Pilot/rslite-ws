@@ -85,6 +85,9 @@ PORTING_FUNCS="sqlite3SelectNew" ./run-docker-porting.sh
 
 # Test it
 ./run-docker-patterns.sh "unsafe-rust-fixer.py --match-patterns='*' --fix src/ && ./build_all.sh && unsafe-rust-fixer.py --match-patterns='*' --fix --dry-run src/"
+
+# Apply all commit one by one
+(cd unsafe_rust_fixer && ./verify_fixer_plugin_and_commit_crust_sqlite.sh <hash-commit-sqlite-rust-port>)
 ```
 ## Permissions within Docker
 

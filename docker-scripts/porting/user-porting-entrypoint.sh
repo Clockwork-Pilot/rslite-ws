@@ -18,12 +18,11 @@ export WORK_DIR=/x/y
 
 # loop over files in /x/y directory, for every file run filter_content_by_context <filename> > /workspace/<filename> 
 # filename should be full patyh relatively to base dir '/x/y'
-/docker-scripts/create-context-mirror.sh /x/y $WORKSPACE_ROOT
+/docker-scripts/porting/create-context-mirror.sh /x/y $WORKSPACE_ROOT
 
 rm -f $WORKSPACE_ROOT/CLAUDE.md
 
 cp /crust_to_rust_loop/CLAUDE.md $WORKSPACE_ROOT
-
 
 echo "cd /x/y && ./build_all.sh" > ~/xyz
 chmod +x ~/xyz
