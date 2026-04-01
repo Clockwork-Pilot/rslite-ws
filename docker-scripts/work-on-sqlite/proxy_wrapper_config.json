@@ -3,7 +3,7 @@
         "sqlite": {
             "paths": ["/workspace"],
             "git": {
-                "denied_subcommands": ["commit", "push", "rebase", "reset", "clean", "gc", "checkout", "stash"],
+              "denied_subcommands": ["commit", "push", "rebase", "reset", "clean", "gc", "checkout", "stash", "add", "rm", "restore", "stash"],
                 "denied_patterns":    ["--force(?:-with-lease)?", "-f\\b"]
             },
             "gh": {
