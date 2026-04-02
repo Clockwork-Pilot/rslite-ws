@@ -83,7 +83,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-venv \
   pinentry-curses \
   gosu \
-  && apt-get clean && rm -rf /var/lib/apt/lists/* 
+  && apt-get clean && rm -rf /var/lib/apt/lists/* \
+  && curl -LsSf https://astral.sh/uv/install.sh | sh 
 
 RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 	&& ln -s /usr/include/tcl/tclOODecls.h /usr/include/tclOODecls.h \
@@ -108,6 +109,15 @@ RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
     && chmod 711 /usr/bin/git /usr/bin/gh
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libclang-dev \
+    clang \
+    llvm-dev \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 ENV USERNAME=$USERNAME
