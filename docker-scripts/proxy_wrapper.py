@@ -11,18 +11,25 @@ Dispatch order:
   1. CUSTOM_HANDLERS registry  — per-command Python functions (cat, sed, …)
   2. Namespace rule engine      — subcommand/flag deny-lists (git, gh, …)
   3. Pass-through               — exec real binary unchanged
+
+Configuration:
+  CONFIG can be loaded from a JSON file at the path specified by PROXY_WRAPPER_CONFIG env var.
+  If the file exists, it overrides the hardcoded defaults below.
+  Set PROXY_WRAPPER_CONFIG=/path/to/config.json to use a custom config.
 """
 import re
 import subprocess
 import sys
 import os
+import json
 from typing import Callable
 
 REAL_BINARY_DIR = "/usr/bin"
 LS_SOURCE_PATH = "/x/y"
 LS_TARGET_PATH = os.environ.get("WORKSPACE_ROOT", "/workspace")
+PROXY_WRAPPER_CONFIG_PATH = os.environ.get("PROXY_WRAPPER_CONFIG", "/etc/proxy_wrapper_config.json")
 
-CONFIG = {
+_HARDCODED_CONFIG = {
     "namespaces": {
         "sqlite": {
             "paths": ["/workspace"],
@@ -48,6 +55,19 @@ CONFIG = {
         },
     }
 }
+
+def _load_config() -> dict:
+    """Load CONFIG from JSON file or return hardcoded defaults."""
+    if os.path.isfile(PROXY_WRAPPER_CONFIG_PATH):
+        try:
+            with open(PROXY_WRAPPER_CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"[proxy_wrapper] warning: failed to load config from {PROXY_WRAPPER_CONFIG_PATH}: {e}", file=sys.stderr)
+            return _HARDCODED_CONFIG
+    return _HARDCODED_CONFIG
+
+CONFIG = _load_config()
 
 
 # ---------------------------------------------------------------------------

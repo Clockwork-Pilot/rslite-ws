@@ -25,6 +25,7 @@ Examples:
 import argparse
 import sys
 import os
+import multiprocessing
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import importlib.util
@@ -428,6 +429,34 @@ class UnsafePatternFixer:
         return code != original_code
 
 
+# ── Parallel worker state ────────────────────────────────────────────────────
+# Each worker process initializes its own UnsafePatternFixer once, then reuses
+# it for every (file, pattern) task it receives from the pool.
+
+_worker_fixer: Optional[UnsafePatternFixer] = None
+
+
+def _init_worker() -> None:
+    global _worker_fixer
+    _worker_fixer = UnsafePatternFixer(verbose=False)
+
+
+def _process_file_for_pattern(
+    args: Tuple[str, str, bool, bool]
+) -> Tuple[str, Dict, bool]:
+    """Find and optionally fix one pattern in one file (runs in worker process)."""
+    file_path, pattern_name, do_fix, dry_run = args
+    try:
+        assert _worker_fixer is not None
+        findings = _worker_fixer.find_patterns(file_path, match_patterns=[pattern_name])
+        changed = False
+        if do_fix and findings:
+            changed = _worker_fixer.apply_fixes_to_patterns(file_path, findings, dry_run=dry_run)
+        return file_path, findings, changed
+    except Exception:
+        return file_path, {}, False
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -511,7 +540,7 @@ def main() -> int:
         # Check if target is a directory (project) or file
         if os.path.isdir(target):
             # Scan all Rust files in the directory recursively
-            rust_files = list(Path(target).rglob("*.rs"))
+            rust_files = sorted(Path(target).rglob("*.rs"))
             if not rust_files:
                 print(f"No Rust files found in {target}")
                 return 0
@@ -519,26 +548,31 @@ def main() -> int:
             if args.verbose:
                 print(f"Found {len(rust_files)} Rust file(s)")
 
-            total_findings = {}
-            for rust_file in sorted(rust_files):
-                try:
-                    findings = fixer.find_patterns(str(rust_file), match_patterns=match_patterns)
-                    if findings:
-                        total_findings[str(rust_file)] = findings
-                        fixer.report_matched_patterns(str(rust_file), findings)
-                except Exception as e:
-                    if args.verbose:
-                        print(f"Error processing {rust_file}: {e}")
+            # Patterns applied sequentially by priority; files parallelized per pattern.
+            expanded = fixer.expand_glob_patterns(match_patterns) if match_patterns else list(fixer.plugins.keys())
+            sorted_patterns = sorted(
+                [p for p in expanded if p in fixer.plugins],
+                key=lambda name: -fixer.plugins[name].priority,
+            )
 
-            # Apply fixes if --fix specified
+            total_findings: Dict[str, Dict] = {}
             dry_run_skip_count = 0
-            if args.fix:
-                if args.verbose:
-                    print(f"\nApplying fixes to matched patterns...")
-                for rust_file in sorted(total_findings.keys()):
-                    changed = fixer.apply_fixes_to_patterns(rust_file, total_findings[rust_file], dry_run=args.dry_run)
-                    if args.dry_run and changed:
-                        dry_run_skip_count += 1
+            num_workers = min(os.cpu_count() or 1, len(rust_files))
+
+            with multiprocessing.Pool(processes=num_workers, initializer=_init_worker) as pool:
+                for pattern_name in sorted_patterns:
+                    if args.verbose:
+                        print(f"Running pattern: {pattern_name}")
+                    work = [
+                        (str(f), pattern_name, args.fix, args.dry_run)
+                        for f in rust_files
+                    ]
+                    for file_path, findings, changed in pool.map(_process_file_for_pattern, work):
+                        if findings:
+                            total_findings.setdefault(file_path, {}).update(findings)
+                            fixer.report_matched_patterns(file_path, findings)
+                        if args.dry_run and changed:
+                            dry_run_skip_count += 1
 
             if args.dry_run:
                 total_occurrences = sum(len(v) for f in total_findings.values() for v in f.values())
