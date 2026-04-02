@@ -78,6 +78,25 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libclang-dev \
+    clang \
+    llvm-dev \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /c2rust && \
+    wget https://github.com/immunant/c2rust/archive/refs/heads/master.zip -O /tmp/c2rust-master.zip && \
+    unzip /tmp/c2rust-master.zip -d /c2rust && \
+    mv /c2rust/c2rust-master/* /c2rust/ && \
+    rm -rf /c2rust/c2rust-master /tmp/c2rust-master.zip
+
+RUN cd /c2rust && cargo build --release -j6
+
+ENV PATH="/c2rust/target/release:$PATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
   python3 \
   python3-pip \
   python3-venv \
@@ -109,15 +128,6 @@ RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
     && chmod 711 /usr/bin/git /usr/bin/gh
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libclang-dev \
-    clang \
-    llvm-dev \
-    cmake \
-    libssl-dev \
-    pkg-config \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 ENV USERNAME=$USERNAME
