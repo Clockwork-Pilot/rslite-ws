@@ -131,7 +131,7 @@ pub struct sqlite3_vfs {
         unsafe extern "C" fn(
             *mut sqlite3_vfs,
             *const ::core::ffi::c_char,
-        ) -> *const ::core::ffi::c_char,
+        ) -> *const ::core::ffi::c_char
     >
 
 }
@@ -231,7 +231,7 @@ pub struct sqlite3_io_methods {
             *mut sqlite3_file,
             sqlite3_int64,
             *mut ::core::ffi::c_void,
-        ) -> ::core::ffi::c_int,
+        ) -> ::core::ffi::c_int
     >
 
 }

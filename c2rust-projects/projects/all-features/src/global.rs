@@ -99,7 +99,7 @@ pub struct sqlite3_mutex_methods {
         unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int,
     >,
     pub xMutexNotheld: Option<
-        unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int,
+        unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int
     >
 
 }

@@ -1357,7 +1357,7 @@ pub struct sqlite3_module {
             *const ::core::ffi::c_char,
             ::core::ffi::c_int,
             *mut *mut ::core::ffi::c_char,
-        ) -> ::core::ffi::c_int,
+        ) -> ::core::ffi::c_int
     >
 
 }
@@ -1763,7 +1763,7 @@ pub struct ParseCleanup {
     pub pNext: *mut ParseCleanup,
     pub pPtr: *mut ::core::ffi::c_void,
     pub xCleanup: Option<
-        unsafe extern "C" fn(*mut sqlite3, *mut ::core::ffi::c_void) -> (),
+        unsafe extern "C" fn(*mut sqlite3, *mut ::core::ffi::c_void) -> ()
     >
 
 }
@@ -2099,7 +2099,7 @@ pub union C2Rust_Unnamed_25 {
             *mut ::core::ffi::c_void,
             *mut ::core::ffi::c_void,
             *mut ::core::ffi::c_void,
-        ) -> ::core::ffi::c_int,
+        ) -> ::core::ffi::c_int
     >
 
 }
@@ -2225,7 +2225,7 @@ pub struct sqlite3_vfs {
         unsafe extern "C" fn(
             *mut sqlite3_vfs,
             *const ::core::ffi::c_char,
-        ) -> *const ::core::ffi::c_char,
+        ) -> *const ::core::ffi::c_char
     >
 
 }
@@ -2325,7 +2325,7 @@ pub struct sqlite3_io_methods {
             *mut sqlite3_file,
             sqlite3_int64,
             *mut ::core::ffi::c_void,
-        ) -> ::core::ffi::c_int,
+        ) -> ::core::ffi::c_int
     >
 
 }
@@ -2375,7 +2375,7 @@ pub struct sqlite3_mutex_methods {
         unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int,
     >,
     pub xMutexNotheld: Option<
-        unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int,
+        unsafe extern "C" fn(*mut sqlite3_mutex) -> ::core::ffi::c_int
     >
 
 }
