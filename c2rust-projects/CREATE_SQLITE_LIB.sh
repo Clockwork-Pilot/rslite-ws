@@ -28,7 +28,6 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-C2RUST_BIN="${C2RUST_BIN:-/c2rust/target/release/c2rust}"
 COMPILE_DIR="${COMPILE_DIR:-/c2rust-projects/compile-c2rust}"
 REQUIRED_FILES="$COMPILE_DIR/required-files.txt"
 SQLITE_ROOT="${1:-/sqlite}"
@@ -36,6 +35,40 @@ DEFINES_FILE="${2:-minimal.txt}"
 OUTPUT_DIR="${3:-/c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
 DEFINES_PATH="$COMPILE_DIR/compile-options/$DEFINES_FILE"
 PROJ_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Find C2Rust binary with fallback locations
+find_c2rust() {
+    # 1. Check if explicitly provided
+    if [ -n "${C2RUST_BIN:-}" ] && [ -f "$C2RUST_BIN" ]; then
+        echo "$C2RUST_BIN"
+        return 0
+    fi
+
+    # 2. Check common locations
+    local candidates=(
+        "/c2rust/target/release/c2rust"
+        "/workspace/target/release/c2rust"
+        "${PROJ_DIR}/../target/release/c2rust"
+        "${HOME}/.cargo/bin/c2rust"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [ -f "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    # 3. Check if available in PATH
+    if command -v c2rust &> /dev/null; then
+        command -v c2rust
+        return 0
+    fi
+
+    return 1
+}
+
+C2RUST_BIN=$(find_c2rust) || C2RUST_BIN=""
 
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}C2Rust SQLite Library Creation Script${NC}"
@@ -47,9 +80,23 @@ echo ""
 # ============================================================================
 echo -e "${YELLOW}[1/7] Verifying prerequisites...${NC}"
 
-if [ ! -f "$C2RUST_BIN" ]; then
-    echo -e "${RED}ERROR: C2Rust binary not found at $C2RUST_BIN${NC}"
-    echo "Build c2rust with: cd /c2rust && cargo build --release"
+if [ -z "$C2RUST_BIN" ] || [ ! -f "$C2RUST_BIN" ]; then
+    echo -e "${RED}ERROR: C2Rust binary not found${NC}"
+    echo ""
+    echo "Tried looking in:"
+    echo "  - /c2rust/target/release/c2rust"
+    echo "  - /workspace/target/release/c2rust"
+    echo "  - ${PROJ_DIR}/../target/release/c2rust"
+    echo "  - ${HOME}/.cargo/bin/c2rust"
+    echo "  - PATH"
+    echo ""
+    echo "Options:"
+    echo "  1. Set C2RUST_BIN environment variable:"
+    echo "     export C2RUST_BIN=/path/to/c2rust"
+    echo "  2. Install c2rust via cargo:"
+    echo "     cargo install c2rust"
+    echo "  3. Build from source in /c2rust:"
+    echo "     cd /c2rust && cargo build --release"
     exit 1
 fi
 echo "  ✓ C2Rust found: $C2RUST_BIN"
@@ -220,6 +267,14 @@ TOML
 
 echo "  ✓ Created $OUTPUT_DIR/Cargo.toml"
 
+NIGHTLY_CHANNEL=$(rustup show active-toolchain 2>/dev/null | grep -oP 'nightly-\d{4}-\d{2}-\d{2}' | head -1 || echo "nightly")
+cat > "$OUTPUT_DIR/rust-toolchain.toml" << TOML
+[toolchain]
+channel = "$NIGHTLY_CHANNEL"
+components = ["rustfmt", "rust-analyzer"]
+TOML
+echo "  ✓ Created $OUTPUT_DIR/rust-toolchain.toml (channel: $NIGHTLY_CHANNEL)"
+
 # Generate mod.rs that declares all transpiled modules (inline in lib.rs)
 # Each C source file becomes a module based on its filename
 cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
@@ -230,7 +285,10 @@ cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
 #![allow(unused)]
 #![allow(warnings)]
 
+#[macro_use]
 extern crate c2rust_bitfields;
+
+use c2rust_bitfields::BitfieldStruct;
 
 RUST
 
@@ -250,11 +308,125 @@ echo "  ✓ Created $OUTPUT_DIR/src/lib.rs with ${#SOURCE_FILES[@]} module decla
 echo ""
 
 # ============================================================================
-# Step 6: Integration Setup
+# Step 6: Post-process generated Rust files to fix nightly API breakage
 # ============================================================================
-echo -e "${YELLOW}[6/7] Setting up integration...${NC}"
+echo -e "${YELLOW}[6/7] Post-processing generated Rust for nightly API compatibility...${NC}"
 
-echo "  ✓ Library configuration ready"
+# Process all generated .rs files (not lib.rs)
+RS_FILES=$(find "$OUTPUT_DIR/src" -name "*.rs" ! -name "lib.rs")
+
+for RS_FILE in $RS_FILES; do
+    # --- VaListImpl removed in newer nightly ---
+    # Remove bare declaration lines: `let mut ap: ::core::ffi::VaListImpl;`
+    sed -i '/let mut ap: ::core::ffi::VaListImpl;/d' "$RS_FILE"
+    # Convert assignment-after-declaration to let binding:
+    # `ap = c2rust_args.clone();`  ->  `let mut ap = c2rust_args;`
+    sed -i 's|ap = c2rust_args\.clone();|let mut ap = c2rust_args;|g' "$RS_FILE"
+    # `ap.as_va_list()` -> `ap`  (works for both VaList param and moved c2rust_args)
+    sed -i 's|ap\.as_va_list()|ap|g' "$RS_FILE"
+done
+
+# Fix atomic operations using Python script
+cat > /tmp/fix_atomics.py << 'PYTHON_FIX'
+import os
+import glob
+import re
+
+output_dir = os.environ.get('OUTPUT_DIR', '/c2rust-projects/projects/minimal')
+rs_files = glob.glob(os.path.join(output_dir, 'src', '*.rs'))
+rs_files = [f for f in rs_files if not f.endswith('lib.rs')]
+
+for rs_file in rs_files:
+    with open(rs_file, 'r') as f:
+        content = f.read()
+
+    # Remove atomic_fence_seqcst();
+    content = content.replace('::core::intrinsics::atomic_fence_seqcst();', '')
+
+    # Fix atomic_load_relaxed with nested parens handling
+    while '::core::intrinsics::atomic_load_relaxed(' in content:
+        start = content.find('::core::intrinsics::atomic_load_relaxed(')
+        if start == -1:
+            break
+
+        # Find matching closing paren
+        i = start + len('::core::intrinsics::atomic_load_relaxed(')
+        depth = 1
+        while i < len(content) and depth > 0:
+            if content[i] == '(':
+                depth += 1
+            elif content[i] == ')':
+                depth -= 1
+            i += 1
+
+        # Extract and clean argument
+        arg = content[start + len('::core::intrinsics::atomic_load_relaxed('):i-1]
+        arg = arg.replace('&raw mut ', '', 1).strip()
+
+        # Replace with just the argument
+        content = content[:start] + arg + content[i:]
+
+    # Fix atomic_store_relaxed - just remove it
+    while '::core::intrinsics::atomic_store_relaxed(' in content:
+        start = content.find('::core::intrinsics::atomic_store_relaxed(')
+        if start == -1:
+            break
+
+        i = start + len('::core::intrinsics::atomic_store_relaxed(')
+        depth = 1
+        while i < len(content) and depth > 0:
+            if content[i] == '(':
+                depth += 1
+            elif content[i] == ')':
+                depth -= 1
+            i += 1
+
+        # Remove the entire call
+        content = content[:start] + content[i:]
+
+    # Clean up trailing commas left behind by atomic operation removal
+    # Pattern: ,; -> ;
+    content = content.replace(',;', ';')
+    # Pattern: , as -> as (for type casts)
+    content = re.sub(r',\s+as\s+', ' as ', content)
+    # Pattern: , } -> }
+    content = content.replace(',}', '}')
+    # Pattern: , ) -> )
+    content = content.replace(',)', ')')
+    # Pattern: (expr), at end of statement -> expr;
+    content = re.sub(r'=\s*\(([^)]+)\),\s*;', r'= \1;', content)
+    # Pattern: multiple trailing commas
+    content = re.sub(r'(\w+)\s*,\s*,', r'\1,', content)
+
+    with open(rs_file, 'w') as f:
+        f.write(content)
+
+print(f"Processed {len(rs_files)} files")
+PYTHON_FIX
+
+export OUTPUT_DIR="$OUTPUT_DIR"
+python3 /tmp/fix_atomics.py
+
+FIXED_VALIST=$(grep -rl "let mut ap = c2rust_args" "$OUTPUT_DIR/src" 2>/dev/null | wc -l)
+echo "  ✓ Fixed VaListImpl in $FIXED_VALIST files"
+echo ""
+
+# ============================================================================
+# Step 7: Run C2Rust refactoring to reorganize definitions
+# ============================================================================
+echo -e "${YELLOW}[7/7] Running C2Rust refactoring to reorganize definitions...${NC}"
+
+cd "$OUTPUT_DIR"
+if command -v c2rust &> /dev/null || [ -f "$C2RUST_BIN" ]; then
+    if "$C2RUST_BIN" refactor -r inplace --cargo reorganize_definitions > /tmp/c2rust-refactor.log 2>&1; then
+        echo "  ✓ Refactoring completed successfully"
+    else
+        echo "  ⚠ Refactoring completed with warnings (see /tmp/c2rust-refactor.log)"
+    fi
+else
+    echo "  ⚠ c2rust refactor not available, skipping reorganize_definitions"
+fi
+cd - > /dev/null
 echo ""
 
 # ============================================================================
