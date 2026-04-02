@@ -31,4 +31,5 @@ docker run -it --rm \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/crust-sqlite:/workspace:Z \
     -v $(pwd)/c2rust-master:/c2rust:Z \
+    -v $(pwd)/c2rust-projects:/c2rust-projects:Z \
     layered-sqlite-crust "${CMD[@]}"
