@@ -33,7 +33,7 @@ COMPILE_DIR="${COMPILE_DIR:-/c2rust-projects/compile-c2rust}"
 REQUIRED_FILES="$COMPILE_DIR/required-files.txt"
 SQLITE_ROOT="${1:-/sqlite}"
 DEFINES_FILE="${2:-defines-minimal.txt}"
-OUTPUT_DIR="${3:-c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
+OUTPUT_DIR="${3:-/c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
 DEFINES_PATH="$COMPILE_DIR/compile-flags/$DEFINES_FILE"
 PROJ_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -103,8 +103,8 @@ mapfile -t FLAGS < <(sed 's/\r//' "$DEFINES_PATH" | grep -v '^$')
 # Read source files from required-files.txt
 mapfile -t SOURCE_FILES < <(sed 's/\r//' "$REQUIRED_FILES" | grep -v '^$')
 
-# Create c2rust config
-CONFIG_FILE="$PROJ_DIR/c2rust-lib.toml"
+# Create c2rust config (in project directory)
+CONFIG_FILE="$OUTPUT_DIR/c2rust.toml"
 cat > "$CONFIG_FILE" << TOML
 [transpilation]
 # Emit Rust code that compiles
@@ -122,7 +122,7 @@ done
 
 cat >> "$CONFIG_FILE" << TOML
 ]
-output_dir = "$OUTPUT_DIR/src/generated/"
+output_dir = "$OUTPUT_DIR/src/"
 
 # Compilation settings
 TOML
@@ -142,7 +142,7 @@ preserve_comments = true
 emit_panic_on_fail = true
 TOML
 
-echo "  ✓ Generated c2rust-lib.toml with ${#SOURCE_FILES[@]} source files"
+echo "  ✓ Generated c2rust.toml with ${#SOURCE_FILES[@]} source files"
 echo ""
 
 # ============================================================================
@@ -156,26 +156,32 @@ for src_file in "${SOURCE_FILES[@]}"; do
     FULL_SOURCE_PATHS+=("$SQLITE_ROOT/$src_file")
 done
 
-mkdir -p "$OUTPUT_DIR/src/generated"
+mkdir -p "$OUTPUT_DIR"
 
 COPIED_COUNT=0
+
+# Transpile to temp directory (C2Rust adds src/ subdirectory)
+TEMP_OUT=$(mktemp -d)
+trap "rm -rf $TEMP_OUT" EXIT
 
 if "$C2RUST_BIN" transpile "${FULL_SOURCE_PATHS[@]}" \
     --emit-modules \
     --disable-rustfmt \
-    -o "$OUTPUT_DIR/src/generated/" \
+    -o "$TEMP_OUT/" \
     -- \
     $(printf '%s ' "${FLAGS[@]}") \
     -I"$SQLITE_ROOT" > /tmp/c2rust-lib-transpile.log 2>&1; then
 
     echo "  ✓ Transpilation successful"
 
-    # Count generated RS files in output directory
-    if [ -d "$OUTPUT_DIR/src/generated" ]; then
-        COPIED_COUNT=$(find "$OUTPUT_DIR/src/generated" -name "*.rs" -type f | wc -l)
+    # Move generated files from temp/src/ to output/src/
+    mkdir -p "$OUTPUT_DIR/src"
+    if [ -d "$TEMP_OUT/src" ]; then
+        mv "$TEMP_OUT/src"/*.rs "$OUTPUT_DIR/src/"
+        COPIED_COUNT=$(find "$OUTPUT_DIR/src" -name "*.rs" -type f | grep -v "lib.rs" | wc -l)
     fi
 
-    echo "  ✓ Generated $COPIED_COUNT transpiled files in $OUTPUT_DIR/src/generated/"
+    echo "  ✓ Generated $COPIED_COUNT transpiled files in $OUTPUT_DIR/src/"
 else
     echo -e "${RED}ERROR: Transpilation failed${NC}"
     cat /tmp/c2rust-lib-transpile.log
@@ -213,9 +219,10 @@ TOML
 
 echo "  ✓ Created $OUTPUT_DIR/Cargo.toml"
 
-# Generate generated/mod.rs that declares all transpiled modules
-mkdir -p "$OUTPUT_DIR/src/generated"
-cat > "$OUTPUT_DIR/src/generated/mod.rs" << 'RUST'
+# Generate mod.rs that declares all transpiled modules (inline in lib.rs)
+# Each C source file becomes a module based on its filename
+cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
+#![feature(extern_types, c_variadic)]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -227,25 +234,15 @@ RUST
 for src_file in "${SOURCE_FILES[@]}"; do
     MODULE_NAME="${src_file%.c}"
     MODULE_NAME="${MODULE_NAME##*/}"  # Strip path, keep only filename
-    echo "pub mod $MODULE_NAME;" >> "$OUTPUT_DIR/src/generated/mod.rs"
+    # Handle reserved keywords like 'where'
+    if [ "$MODULE_NAME" = "where" ]; then
+        echo "pub mod r#where;" >> "$OUTPUT_DIR/src/lib.rs"
+    else
+        echo "pub mod $MODULE_NAME;" >> "$OUTPUT_DIR/src/lib.rs"
+    fi
 done
 
-echo "  ✓ Created $OUTPUT_DIR/src/generated/mod.rs with ${#SOURCE_FILES[@]} module declarations"
-
-# Generate lib.rs with module re-exports
-cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
-#![feature(extern_types, c_variadic)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(unused)]
-#![allow(warnings)]
-
-pub mod generated;
-pub use generated::*;
-RUST
-
-echo "  ✓ Created $OUTPUT_DIR/src/lib.rs"
+echo "  ✓ Created $OUTPUT_DIR/src/lib.rs with ${#SOURCE_FILES[@]} module declarations"
 
 echo ""
 
@@ -267,9 +264,8 @@ echo ""
 echo "Created Files:"
 echo "  ✓ $OUTPUT_DIR/Cargo.toml"
 echo "  ✓ $OUTPUT_DIR/src/lib.rs"
-echo "  ✓ $OUTPUT_DIR/src/generated/mod.rs"
-echo "  ✓ $OUTPUT_DIR/src/generated/*.rs ($COPIED_COUNT transpiled files)"
-echo "  ✓ $CONFIG_FILE (configuration)"
+echo "  ✓ $OUTPUT_DIR/src/*.rs ($COPIED_COUNT transpiled modules)"
+echo "  ✓ $OUTPUT_DIR/c2rust.toml (C2Rust configuration)"
 echo ""
 echo "Next Steps:"
 echo "  1. Build the library:"
