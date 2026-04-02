@@ -1,0 +1,18 @@
+[package]
+name = "all-features"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[lib]
+name = "sqlite3"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+libc = "0.2"
+c2rust-bitfields = "0.22.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

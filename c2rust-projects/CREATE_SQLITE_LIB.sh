@@ -24,9 +24,9 @@ NC='\033[0m'
 
 COMPILE_DIR="${COMPILE_DIR:-/c2rust-projects/compile-c2rust}"
 REQUIRED_FILES="$COMPILE_DIR/required-files.txt"
-SQLITE_ROOT="${1:-/sqlite}"
-DEFINES_FILE="${2:-minimal.txt}"
-export OUTPUT_DIR="${3:-/c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
+SQLITE_ROOT="${SQLITE_ROOT:-/sqlite}"
+DEFINES_FILE="${1:-minimal.txt}"
+export OUTPUT_DIR="/c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)"
 DEFINES_PATH="$COMPILE_DIR/compile-options/$DEFINES_FILE"
 PROJ_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$PROJ_DIR/create_sqlite_lib"
