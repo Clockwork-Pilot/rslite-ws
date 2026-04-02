@@ -49,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean && rm -rf /var/lib/apt/lists/* \
   && curl -LsSf https://astral.sh/uv/install.sh | sh  
 
+
 RUN curl -fsSL https://github.com/tmux/tmux-builds/releases/download/v3.6a/tmux-3.6a-linux-x86_64.tar.gz \
   | tar -xz -C /usr/local/bin tmux
 
@@ -83,6 +84,13 @@ RUN rustup install nightly-2026-03-26-x86_64-unknown-linux-gnu \
       
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# add claude code path
+ENV PATH="$HOME/.local/bin:$PATH"
+
+# add uv path
+ENV PATH="/root/.local/bin:$PATH"
+
+
 USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -93,6 +101,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     pkg-config \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 
 RUN mkdir -p /c2rust && \
     wget https://github.com/immunant/c2rust/archive/refs/heads/master.zip -O /tmp/c2rust-master.zip && \
@@ -116,8 +125,6 @@ RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 
 RUN usermod -aG tty $USERNAME
 
-# add claude code path
-ENV PATH="$HOME/.local/bin:$PATH"
 
 COPY docker-scripts /docker-scripts
 RUN cp /docker-scripts/docker-entrypoint.sh /usr/local/bin
