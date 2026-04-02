@@ -85,7 +85,7 @@ source_files = [
   "/sqlite/src/whereexpr.c",
   "/sqlite/src/window.c",
 ]
-output_dir = "/c2rust-projects/minimal-defines-crust//src/generated/"
+output_dir = "c2rust-projects/projects/defines-minimal/src/generated/"
 
 # Compilation settings
 compile_flags = [

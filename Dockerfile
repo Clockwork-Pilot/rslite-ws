@@ -40,6 +40,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   build-essential \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  python3 \
+  python3-pip \
+  python3-venv \
+  pinentry-curses \
+  gosu \
+  && apt-get clean && rm -rf /var/lib/apt/lists/* \
+  && curl -LsSf https://astral.sh/uv/install.sh | sh  
 
 RUN curl -fsSL https://github.com/tmux/tmux-builds/releases/download/v3.6a/tmux-3.6a-linux-x86_64.tar.gz \
   | tar -xz -C /usr/local/bin tmux
@@ -72,7 +80,7 @@ RUN cd /sqlite && \
 RUN rustup install nightly-2026-03-26-x86_64-unknown-linux-gnu \
     && rustup component add --toolchain nightly-2026-03-26-x86_64-unknown-linux-gnu \
        rustfmt rust-analyzer clippy
-
+      
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 USER root
@@ -92,18 +100,11 @@ RUN mkdir -p /c2rust && \
     mv /c2rust/c2rust-master/* /c2rust/ && \
     rm -rf /c2rust/c2rust-master /tmp/c2rust-master.zip
 
+RUN cd /c2rust && cargo fetch --verbose
+
 RUN cd /c2rust && cargo build --release -j6
 
 ENV PATH="/c2rust/target/release:$PATH"
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  python3 \
-  python3-pip \
-  python3-venv \
-  pinentry-curses \
-  gosu \
-  && apt-get clean && rm -rf /var/lib/apt/lists/* \
-  && curl -LsSf https://astral.sh/uv/install.sh | sh 
 
 RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 	&& ln -s /usr/include/tcl/tclOODecls.h /usr/include/tclOODecls.h \

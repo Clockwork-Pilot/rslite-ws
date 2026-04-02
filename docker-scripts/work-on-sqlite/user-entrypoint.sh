@@ -15,6 +15,7 @@ mkdir -p ~/.claude
 [ -s "$HOME/.claude.json" ] || printf '{}\n' > "$HOME/.claude.json"
 
 PATH="$(python -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):$PATH"
+PATH="/c2rust/target/release:$PATH"
 export PATH="/unsafe_rust_fixer:$PATH"
 
 # just expose the same script as porting docker

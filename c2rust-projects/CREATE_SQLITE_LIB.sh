@@ -29,11 +29,12 @@ NC='\033[0m' # No Color
 
 # Configuration
 C2RUST_BIN="${C2RUST_BIN:-/c2rust/target/release/c2rust}"
+COMPILE_DIR="${COMPILE_DIR:-/c2rust-projects/compile-c2rust}"
+REQUIRED_FILES="$COMPILE_DIR/required-files.txt"
 SQLITE_ROOT="${1:-/sqlite}"
-DEFINES_DIR="${2:-/c2rust-projects/compile-options/}"
-DEFINES_PATH="$DEFINES_DIR/defines.txt"
-REQUIRED_FILES="$DEFINES_DIR/../required-files.txt"
-OUTPUT_DIR="$DEFINES_DIR"
+DEFINES_FILE="${2:-defines-minimal.txt}"
+OUTPUT_DIR="${3:-c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
+DEFINES_PATH="$COMPILE_DIR/compile-flags/$DEFINES_FILE"
 PROJ_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
@@ -157,6 +158,8 @@ done
 
 mkdir -p "$OUTPUT_DIR/src/generated"
 
+COPIED_COUNT=0
+
 if "$C2RUST_BIN" transpile "${FULL_SOURCE_PATHS[@]}" \
     --emit-modules \
     --disable-rustfmt \
@@ -168,12 +171,11 @@ if "$C2RUST_BIN" transpile "${FULL_SOURCE_PATHS[@]}" \
     echo "  ✓ Transpilation successful"
 
     # Count generated RS files in output directory
-    COPIED_COUNT=0
     if [ -d "$OUTPUT_DIR/src/generated" ]; then
         COPIED_COUNT=$(find "$OUTPUT_DIR/src/generated" -name "*.rs" -type f | wc -l)
     fi
 
-    echo "  ✓ Copied $COPIED_COUNT transpiled files to $OUTPUT_DIR/src/"
+    echo "  ✓ Generated $COPIED_COUNT transpiled files in $OUTPUT_DIR/src/generated/"
 else
     echo -e "${RED}ERROR: Transpilation failed${NC}"
     cat /tmp/c2rust-lib-transpile.log
@@ -198,7 +200,7 @@ authors = ["C2Rust Automated Migration"]
 
 [lib]
 name = "sqlite3"
-crate-type = ["cdylib"]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 libc = "0.2"
@@ -211,9 +213,9 @@ TOML
 
 echo "  ✓ Created $OUTPUT_DIR/Cargo.toml"
 
-# Generate lib.rs with all modules
-cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
-#![feature(extern_types, c_variadic)]
+# Generate generated/mod.rs that declares all transpiled modules
+mkdir -p "$OUTPUT_DIR/src/generated"
+cat > "$OUTPUT_DIR/src/generated/mod.rs" << 'RUST'
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -223,17 +225,27 @@ cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
 RUST
 
 for src_file in "${SOURCE_FILES[@]}"; do
-    MODULE_PATH="${src_file%.c}"
-    echo "mod generated::${MODULE_PATH//\//_};" >> "$OUTPUT_DIR/src/lib.rs"
+    MODULE_NAME="${src_file%.c}"
+    MODULE_NAME="${MODULE_NAME##*/}"  # Strip path, keep only filename
+    echo "pub mod $MODULE_NAME;" >> "$OUTPUT_DIR/src/generated/mod.rs"
 done
 
-echo "" >> "$OUTPUT_DIR/src/lib.rs"
-for src_file in "${SOURCE_FILES[@]}"; do
-    MODULE_PATH="${src_file%.c}"
-    echo "pub use generated::${MODULE_PATH//\//_}::*;" >> "$OUTPUT_DIR/src/lib.rs"
-done
+echo "  ✓ Created $OUTPUT_DIR/src/generated/mod.rs with ${#SOURCE_FILES[@]} module declarations"
 
-echo "  ✓ Created $OUTPUT_DIR/src/lib.rs with ${#SOURCE_FILES[@]} modules"
+# Generate lib.rs with module re-exports
+cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
+#![feature(extern_types, c_variadic)]
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(unused)]
+#![allow(warnings)]
+
+pub mod generated;
+pub use generated::*;
+RUST
+
+echo "  ✓ Created $OUTPUT_DIR/src/lib.rs"
 
 echo ""
 
@@ -254,8 +266,9 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "Created Files:"
 echo "  ✓ $OUTPUT_DIR/Cargo.toml"
-echo "  ✓ $OUTPUT_DIR/src/lib.rs (${#SOURCE_FILES[@]} modules)"
-echo "  ✓ $OUTPUT_DIR/src/*.rs ($COPIED_COUNT transpiled files)"
+echo "  ✓ $OUTPUT_DIR/src/lib.rs"
+echo "  ✓ $OUTPUT_DIR/src/generated/mod.rs"
+echo "  ✓ $OUTPUT_DIR/src/generated/*.rs ($COPIED_COUNT transpiled files)"
 echo "  ✓ $CONFIG_FILE (configuration)"
 echo ""
 echo "Next Steps:"
