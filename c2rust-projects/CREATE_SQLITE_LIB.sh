@@ -32,9 +32,9 @@ C2RUST_BIN="${C2RUST_BIN:-/c2rust/target/release/c2rust}"
 COMPILE_DIR="${COMPILE_DIR:-/c2rust-projects/compile-c2rust}"
 REQUIRED_FILES="$COMPILE_DIR/required-files.txt"
 SQLITE_ROOT="${1:-/sqlite}"
-DEFINES_FILE="${2:-defines-minimal.txt}"
+DEFINES_FILE="${2:-minimal.txt}"
 OUTPUT_DIR="${3:-/c2rust-projects/projects/$(basename "$DEFINES_FILE" .txt)}"
-DEFINES_PATH="$COMPILE_DIR/compile-flags/$DEFINES_FILE"
+DEFINES_PATH="$COMPILE_DIR/compile-options/$DEFINES_FILE"
 PROJ_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
@@ -210,6 +210,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 libc = "0.2"
+c2rust-bitfields = "0.22.1"
 
 [profile.release]
 lto = true
@@ -228,6 +229,8 @@ cat > "$OUTPUT_DIR/src/lib.rs" << 'RUST'
 #![allow(non_snake_case)]
 #![allow(unused)]
 #![allow(warnings)]
+
+extern crate c2rust_bitfields;
 
 RUST
 
