@@ -127,30 +127,7 @@ TOML
 
 echo "  ✓ Cargo.toml, rust-toolchain.toml, lib.rs"
 
-# ── Step 5: Baseline cargo check (raw, no fixes) ─────────────────────────────
-echo -e "\n${YELLOW}[5] Baseline cargo check (no fixes applied)${NC}"
-cd "$OUTPUT_DIR"
-cargo check 2>&1 | tee /tmp/c2rust-baseline.log || true
-BASELINE_ERRORS=$(grep -c "^error\[" /tmp/c2rust-baseline.log || echo 0)
-BASELINE_PARSE=$(grep -c "^error:" /tmp/c2rust-baseline.log || echo 0)
-echo -e "  errors: ${BASELINE_ERRORS} type-check, ${BASELINE_PARSE} parse"
-cd - >/dev/null
-
-# ── Step 6: C2Rust refactor ──────────────────────────────────────────────────
-echo -e "\n${YELLOW}[6] Attempting c2rust refactor${NC}"
-bash "$SCRIPTS_DIR/try_c2rust_refactor.sh"
-
-echo -e "\n  After refactor:"
-cd "$OUTPUT_DIR"
-cargo check 2>&1 | tee /tmp/c2rust-post-refactor.log || true
-POST_REFACTOR=$(grep -c "^error\[" /tmp/c2rust-post-refactor.log || echo 0)
-PARSE_AFTER=$(grep -c "^error:" /tmp/c2rust-post-refactor.log || echo 0)
-echo -e "  errors: ${POST_REFACTOR} type-check, ${PARSE_AFTER} parse"
-cd - >/dev/null
-
-# ── Step 7: Apply only necessary fixes ───────────────────────────────────────
-echo -e "\n${YELLOW}[7] Applying fixes (only those that reduce errors)${NC}"
-
+# Define run_fix function for reuse
 run_fix() {
     local script="$1"
     local before after delta
@@ -167,7 +144,51 @@ run_fix() {
     fi
 }
 
-# Only apply fixes that address errors seen in baseline/post-refactor
+# ── Step 5: Baseline cargo check (raw, no fixes) ─────────────────────────────
+echo -e "\n${YELLOW}[5] Baseline cargo check (no fixes applied)${NC}"
+cd "$OUTPUT_DIR"
+cargo check > /tmp/c2rust-baseline.log 2>&1 || true
+BASELINE_ERRORS=$(grep -c "^error\[" /tmp/c2rust-baseline.log || echo 0)
+BASELINE_PARSE=$(grep -c "^error:" /tmp/c2rust-baseline.log || echo 0)
+cd - >/dev/null
+
+# ── Step 5b: If baseline cargo check failed, apply fixes ───────────────────────
+if [ "$BASELINE_ERRORS" -gt 0 ] || [ "$BASELINE_PARSE" -gt 0 ]; then
+    echo -e "\n${YELLOW}[5b] Baseline cargo check unsuccessful, applying fixes${NC}"
+    run_fix fix_bitfield_imports.py
+    run_fix fix_valist.py
+    run_fix fix_atomics.py
+    run_fix fix_stray_commas.py
+    run_fix fix_match_arms.py
+    run_fix fix_wal_specific.py
+    run_fix fix_transmute.py
+    run_fix fix_void_ptr_indexing.py
+
+    echo -e "\n  After transpilation fixes:"
+    cd "$OUTPUT_DIR"
+    cargo check 2>&1 | tee /tmp/c2rust-after-fixes.log || true
+    AFTER_FIXES_ERRORS=$(grep -c "^error\[" /tmp/c2rust-after-fixes.log || echo 0)
+    AFTER_FIXES_PARSE=$(grep -c "^error:" /tmp/c2rust-after-fixes.log || echo 0)
+    echo -e "  errors: ${AFTER_FIXES_ERRORS} type-check, ${AFTER_FIXES_PARSE} parse"
+    cd - >/dev/null
+fi
+
+# ── Step 6: C2Rust refactor ──────────────────────────────────────────────────
+echo -e "\n${YELLOW}[6] Attempting c2rust refactor${NC}"
+bash "$SCRIPTS_DIR/try_c2rust_refactor.sh"
+
+echo -e "\n  After refactor:"
+cd "$OUTPUT_DIR"
+cargo check 2>&1 | tee /tmp/c2rust-post-refactor.log || true
+POST_REFACTOR=$(grep -c "^error\[" /tmp/c2rust-post-refactor.log || echo 0)
+PARSE_AFTER=$(grep -c "^error:" /tmp/c2rust-post-refactor.log || echo 0)
+echo -e "  errors: ${POST_REFACTOR} type-check, ${PARSE_AFTER} parse"
+cd - >/dev/null
+
+# ── Step 7: Apply additional fixes (if needed) ───────────────────────────────
+echo -e "\n${YELLOW}[7] Applying additional fixes (if needed)${NC}"
+
+# Only apply fixes that address errors still remaining after step 5b
 run_fix fix_bitfield_imports.py
 run_fix fix_valist.py
 run_fix fix_atomics.py
