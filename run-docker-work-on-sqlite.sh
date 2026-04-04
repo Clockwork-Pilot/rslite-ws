@@ -3,11 +3,13 @@
 
 CLAUDE_LOCAL_JSON="$(pwd)/docker-files/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-files/.credentials"
+CARGO_DIR="$(pwd)/docker-files/.cargo"
 # use default if not provided externally
 MODEL=${MODEL:-"claude-haiku-4-5"}
 
 # mount support
 mkdir -p $CLAUDE_CREDENTIALS_DIR
+mkdir -p $CARGO_DIR
 [ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
 
 if [ $# -gt 0 ]; then
@@ -24,6 +26,7 @@ docker run -it --rm \
     -e WORKSPACE_ROOT=/workspace \
     -e CLAUDE_FILE_RULES=/config/deny-file-rules.json \
     -e PROXY_WRAPPER_CONFIG=/docker-scripts/work-on-sqlite/proxy_wrapper_config.json \
+    -v $CARGO_DIR:/home/node/.cargo:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $(pwd)/docker-scripts/work-on-sqlite/y2-plugin-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
