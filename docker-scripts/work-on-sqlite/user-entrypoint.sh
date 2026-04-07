@@ -2,11 +2,11 @@
 
 # write to file ~/.bashrc
 cat >> ~/.bashrc << 'EOF'
-source /unsafe_rust_fixer/.venv/bin/activate
+source /venv/bin/activate
 EOF
 
-source /unsafe_rust_fixer/.venv/bin/activate
-cp /docker-scripts/patterns/create-patterns-venv.sh ~/create-venv-docker.sh
+source /venv/bin/activate
+cp /docker-scripts/work-on-sqlite/create-venv-docker.sh ~/create-venv-docker.sh
 chmod +x ~/create-venv-docker.sh
 
 mkdir -p ~/.claude
@@ -15,8 +15,4 @@ mkdir -p ~/.claude
 [ -s "$HOME/.claude.json" ] || printf '{}\n' > "$HOME/.claude.json"
 
 PATH="$(python -c 'import sys; sys.path.insert(0, "/plugin"); from config import PATH; print(PATH)'):$PATH"
-PATH="/c2rust/target/release:$PATH"
-export PATH="/unsafe_rust_fixer:$PATH"
-
-# just expose the same script as porting docker
-ln -sf /workspace/build_all.sh ~/.local/bin/test-sqlite
+export PATH="/c2rust/target/release:$PATH"

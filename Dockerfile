@@ -102,18 +102,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-
-RUN mkdir -p /c2rust && \
-    wget https://github.com/immunant/c2rust/archive/refs/heads/master.zip -O /tmp/c2rust-master.zip && \
-    unzip /tmp/c2rust-master.zip -d /c2rust && \
-    mv /c2rust/c2rust-master/* /c2rust/ && \
-    rm -rf /c2rust/c2rust-master /tmp/c2rust-master.zip
-
-RUN cd /c2rust && cargo fetch --verbose
-
-RUN cd /c2rust && cargo build --release -j6
-
-ENV PATH="/c2rust/target/release:$PATH"
+# Do not remove this:
+# We may need to use it in the future, but it takes too much time to build to keep it enabled.
+# C2Rust support, for cases when need to create new c2rust applications
+# RUN mkdir -p /c2rust && \
+#     wget https://github.com/immunant/c2rust/archive/refs/heads/master.zip -O /tmp/c2rust-master.zip && \
+#     unzip /tmp/c2rust-master.zip -d /c2rust && \
+#     mv /c2rust/c2rust-master/* /c2rust/ && \
+#     rm -rf /c2rust/c2rust-master /tmp/c2rust-master.zip
+# RUN cd /c2rust && cargo fetch --verbose
+# RUN cd /c2rust && cargo build --release -j6
+# ENV PATH="/c2rust/target/release:$PATH"
 
 RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 	&& ln -s /usr/include/tcl/tclOODecls.h /usr/include/tclOODecls.h \
@@ -125,6 +124,9 @@ RUN ln -s /usr/include/tcl/tcl.h /usr/include/tcl.h \
 
 RUN usermod -aG tty $USERNAME
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  valgrind \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY docker-scripts /docker-scripts
 RUN cp /docker-scripts/docker-entrypoint.sh /usr/local/bin
@@ -136,11 +138,6 @@ RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
     && chmod 711 /usr/bin/git /usr/bin/gh
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  valgrind \
-  && apt-get clean && rm -rf /var/lib/apt/lists/*
-
 
 WORKDIR /workspace
 ENV USERNAME=$USERNAME

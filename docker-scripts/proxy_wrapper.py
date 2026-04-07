@@ -42,17 +42,6 @@ _HARDCODED_CONFIG = {
                 "denied_patterns":    [],
             },
         },
-        "rust_fixer": {
-            "paths": ["/unsafe_rust_fixer"],
-            "git": {
-                "denied_subcommands": {"commit", "push", "rebase", "reset", "clean", "gc", "checkout"},
-                "denied_patterns":    [r"--force(?:-with-lease)?", r"-f\b"],
-            },
-            "gh": {
-                "denied_subcommands": {"repo", "release", "secret", "auth"},
-                "denied_patterns":    [],
-            },
-        },
     }
 }
 

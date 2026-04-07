@@ -1,8 +1,6 @@
 *~
 *.back
 __pycache__
-.claude.local.json
-.credentials/
-crust-sqlite/
-c2rust-projects/projects/**/target/*
+docker-files/
+
 

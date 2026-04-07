@@ -1,4 +1,0 @@
-[
-    { "deny-rule": ["$WORKSPACE_ROOT/**"], "reason": "readonly" },
-    { "whitelist-rule": ["$WORKSPACE_ROOT/$PORTING_FILE"] }
-]

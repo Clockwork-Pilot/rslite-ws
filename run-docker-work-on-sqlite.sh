@@ -4,12 +4,15 @@
 CLAUDE_LOCAL_JSON="$(pwd)/docker-files/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-files/.credentials"
 CARGO_DIR="$(pwd)/docker-files/.cargo"
+VENV_DIR="$(pwd)/docker-files/venv"
 # use default if not provided externally
 MODEL=${MODEL:-"claude-haiku-4-5"}
 
 # mount support
 mkdir -p $CLAUDE_CREDENTIALS_DIR
 mkdir -p $CARGO_DIR
+mkdir -p $VENV_DIR
+
 [ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
 
 if [ $# -gt 0 ]; then
@@ -29,9 +32,8 @@ docker run -it --rm \
     -v $CARGO_DIR:/home/node/.cargo:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
+    -v $VENV_DIR:/venv:Z \
     -v $(pwd)/docker-scripts/work-on-sqlite/y2-plugin-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
-    -v $(pwd)/unsafe_rust_fixer:/unsafe_rust_fixer:Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
-    -v $(pwd)/crust-sqlite:/workspace:Z \
-    -v $(pwd)/c2rust-projects:/c2rust-projects:Z \
-    layered-sqlite-crust "${CMD[@]}"
+    -v $(pwd)/rslite:/workspace:Z \
+    rslite-ws "${CMD[@]}"
