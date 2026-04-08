@@ -33,15 +33,27 @@ docker build -t rslite-ws .
 ./run-docker-work-on-sqlite.sh ./build_all.sh
 ```
 
-## Our way restricting claude code agent
+# Notes on using dev loop
+
+## Load y2 plugin and re-render spec
+Our dev loop highly depends on validating features' constraints of our `spec.k.json`.
+Since we don't have any tools for making changes in verified constrains, and agent is prohibited from making changes
+in constraints that once failed. Sometimes we need to make changes in constraints, so we use hacky way - actually
+manually edit spec file just in text editor. So usually after this it looses its read-only attrs which needs to be restored.
+We just instruct agent to `load y2 plugin and re-render spec` and it restores read-only attrs.
+
+
+# Restricting claude code agent
 
 For some reason we didn't see permissions work when we specify `--dangerously-skip-permissions` flag, so we use own permissions tricks.
 
 See `docker-scripts/proxy_wrapper.py` approach and related 
 config `docker-scripts/work-on-sqlite/proxy_wrapper_config.json`
 
-## Standard Claude code permissions model, within Docker
+## Standard Claude code permissions model _won't_ _work_ for us
 
+When used in combination with `--dangerously-skip-permissions` flag, it wasn't working as expected.
+So this part is just a memory.
 It is corresponding to `~/.claude/settings.json` inside docker container.
 Set permisisons manually in file:
 `docker-claude-artifacts-c2rust-patterns/.credentials/settings.json`: 
@@ -62,4 +74,3 @@ Set permisisons manually in file:
   }
 }
 ```
-
