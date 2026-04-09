@@ -33,14 +33,13 @@ docker run -it --rm \
     -e CLAUDE_PROJECT_ROOT=/workspace \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -e WORKSPACE_ROOT=/workspace \
-    -e CLAUDE_FILE_RULES=/config/deny-file-rules.json \
+    -e CLAUDE_FILE_RULES=/docker-scripts/work-on-sqlite/y2-plugin-deny-file-rules.json \
     -e PROXY_WRAPPER_CONFIG=/docker-scripts/work-on-sqlite/proxy_wrapper_config.json \
     -e DISABLE_STOP_HOOK=${DISABLE_STOP_HOOK:-} \
     -v $CARGO_DIR:/home/node/.cargo:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
     -v $VENV_DIR:/venv:Z \
-    -v $(pwd)/docker-scripts/work-on-sqlite/y2-plugin-deny-file-rules.json:/config/deny-file-rules.json:ro,Z \
     -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/rslite:/workspace:Z \
     rslite-ws "${CMD[@]}"

@@ -7,7 +7,6 @@ EOF
 
 source /venv/bin/activate
 cp /docker-scripts/work-on-sqlite/create-venv-docker.sh ~/create-venv-docker.sh
-chmod +x ~/create-venv-docker.sh
 
 mkdir -p ~/.claude
 

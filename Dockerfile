@@ -85,7 +85,8 @@ RUN rustup install nightly-2026-03-26-x86_64-unknown-linux-gnu \
 RUN rustup toolchain install nightly --profile minimal \
     && rustup component add --toolchain nightly rustfmt rust-analyzer clippy \
     && rustup toolchain install stable \
-    && rustup component add --toolchain stable rustfmt rust-analyzer clippy
+    && rustup component add --toolchain stable rustfmt rust-analyzer clippy \
+    && rustup default stable
 
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
