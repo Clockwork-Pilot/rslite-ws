@@ -40,6 +40,5 @@ docker run -it --rm \
     -v $VENV_DIR:/home/node/venv:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
-    -v $(pwd)/claude-plugin:/plugin:ro,Z \
     -v $(pwd)/rslite:/workspace:Z \
     rslite-ws "${CMD[@]}"
