@@ -148,9 +148,6 @@ RUN chmod +x /usr/local/bin/proxy_wrapper.py \
 WORKDIR /workspace
 ENV USERNAME=$USERNAME
 
-# Set CARGO_HOME to a directory in the user's home to avoid permission issues when running as non-root.
-ENV CARGO_HOME=/home/$USERNAME/.cargo
-
 USER root
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
