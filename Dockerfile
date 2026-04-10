@@ -88,14 +88,8 @@ RUN rustup toolchain install nightly --profile minimal \
     && rustup component add --toolchain stable rustfmt rust-analyzer clippy \
     && rustup default stable
 
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
-# add claude code path
-ENV PATH="$HOME/.local/bin:$PATH"
-
 # add uv path
 ENV PATH="/root/.local/bin:$PATH"
-
 
 USER root
 
@@ -154,6 +148,8 @@ ENV USERNAME=$USERNAME
 
 # Set CARGO_HOME env to a directory in the user's home to avoid permission issues when running as non-root.
 ENV CARGO_HOME=/home/$USERNAME/.cargo
+
+ENV PATH="$HOME/.local/bin:$PATH"
 
 USER root
 

@@ -1,19 +1,18 @@
 #!/bin/bash
 
-
-CLAUDE_LOCAL_JSON="$(pwd)/docker-files/.claude.local.json"
+CLAUDE_JSON="$(pwd)/docker-files/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-files/.credentials"
 CARGO_DIR="$(pwd)/docker-files/.cargo"
 VENV_DIR="$(pwd)/docker-files/venv"
+LOCAL_DIR="$(pwd)/docker-files/.local"
 # use default if not provided externally
 MODEL=${MODEL:-"claude-haiku-4-5"}
 
 # mount support
-mkdir -p $CLAUDE_CREDENTIALS_DIR
-mkdir -p $CARGO_DIR
-mkdir -p $VENV_DIR
+mkdir -p $CLAUDE_CREDENTIALS_DIR $CARGO_DIR $VENV_DIR $LOCAL_DIR
 
-[ -s "$CLAUDE_LOCAL_JSON" ] || printf '{}\n' > "$CLAUDE_LOCAL_JSON"
+# assign default value if file is empty
+[ -s "$CLAUDE_JSON" ] || printf '{}\n' > "$CLAUDE_JSON"
 
 if [ $# -gt 0 ]; then
     ENTRYPOINT_CMD="$*"
@@ -39,6 +38,7 @@ docker run -it --rm \
     -v $CARGO_DIR:/home/node/.cargo:Z \
     -v $VENV_DIR:/home/node/venv:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
-    -v $CLAUDE_LOCAL_JSON:/home/node/.claude.json:Z \
+    -v $CLAUDE_JSON:/home/node/.claude.json:Z \
+    -v $LOCAL_DIR:/home/node/.local:Z \
     -v $(pwd)/rslite:/workspace:Z \
     rslite-ws "${CMD[@]}"
