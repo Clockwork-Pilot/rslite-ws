@@ -17,8 +17,8 @@ docker build -t rslite-ws .
 
 
 ```bash
-# ensure venv is created
-./run-docker-work-on-sqlite.sh "~/create-venv-docker.sh"
+# install claude code
+./run-docker-work-on-sqlite.sh "curl -fsSL https://claude.ai/install.sh | bash"
 
 # run claude code using defaults
 ./run-docker-work-on-sqlite.sh
@@ -30,7 +30,7 @@ docker build -t rslite-ws .
 ./run-docker-work-on-sqlite.sh bash
 
 # test
-./run-docker-work-on-sqlite.sh ./build_all.sh
+./run-docker-work-on-sqlite.sh make c-tcl-tests
 ```
 
 # Notes on using dev loop
