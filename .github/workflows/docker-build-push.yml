@@ -8,6 +8,7 @@ on:
       - 'Dockerfile'
       - 'docker-scripts/**'
       - 'claude-plugin/**'
+      - '.github/workflows/docker-build-push.yml'
   workflow_dispatch:
 
 env:
