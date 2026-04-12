@@ -7,13 +7,17 @@ on:
     paths:
       - 'Dockerfile'
       - 'docker-scripts/**'
-      - 'claude-plugin/**'
+      - 'claude-plugin'        # submodule gitlink (pointer SHA bump)
+      - 'claude-plugin/**'     # fallback if the submodule is ever vendored in
+      - '.gitmodules'
       - '.github/workflows/docker-build-push.yml'
   pull_request:
     paths:
       - 'Dockerfile'
       - 'docker-scripts/**'
+      - 'claude-plugin'
       - 'claude-plugin/**'
+      - '.gitmodules'
       - '.github/workflows/docker-build-push.yml'
   workflow_dispatch:
 
