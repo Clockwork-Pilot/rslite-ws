@@ -1,4 +1,11 @@
 #!/bin/bash
+set -euo pipefail
+
+if [ -z "${PROJECT_ROOT:-}" ]; then
+    echo "Error: PROJECT_ROOT is not set. Export it to an absolute host path to mount as /workspace." >&2
+    echo "  e.g.  PROJECT_ROOT=/abs/path/to/repo $0 [cmd...]" >&2
+    exit 1
+fi
 
 CLAUDE_JSON="$(pwd)/docker-files/.claude.local.json"
 CLAUDE_CREDENTIALS_DIR="$(pwd)/docker-files/.credentials"
@@ -20,7 +27,7 @@ else
     ENTRYPOINT_CMD="claude --dangerously-skip-permissions --model $MODEL --plugin-dir /plugin"
 fi
 
-CMD=(bash -c "source /docker-scripts/work-on-sqlite/user-entrypoint.sh ; $ENTRYPOINT_CMD")
+CMD=(bash -c "source /docker-scripts/user-entrypoint.sh ; $ENTRYPOINT_CMD")
 
 # Example of file with rules specified in CLAUDE_FILE_RULES:
 # [
@@ -32,13 +39,13 @@ docker run -it --rm \
     -e CLAUDE_PROJECT_ROOT=/workspace \
     -e CLAUDE_PLUGIN_ROOT=/plugin \
     -e WORKSPACE_ROOT=/workspace \
-    -e CLAUDE_FILE_RULES=/docker-scripts/work-on-sqlite/y2-plugin-deny-file-rules.json \
-    -e PROXY_WRAPPER_CONFIG=/docker-scripts/work-on-sqlite/proxy_wrapper_config.json \
+    -e CLAUDE_FILE_RULES=/docker-scripts/y2-plugin-deny-file-rules.json \
+    -e PROXY_WRAPPER_CONFIG=/docker-scripts/proxy_wrapper_config.json \
     -e DISABLE_STOP_HOOK=${DISABLE_STOP_HOOK:-} \
     -v $CARGO_DIR:/home/node/.cargo:Z \
     -v $VENV_DIR:/home/node/venv:Z \
     -v $CLAUDE_CREDENTIALS_DIR:/home/node/.claude:Z \
     -v $CLAUDE_JSON:/home/node/.claude.json:Z \
     -v $LOCAL_DIR:/home/node/.local:Z \
-    -v $(pwd)/rslite:/workspace:Z \
+    -v $PROJECT_ROOT:/workspace:Z \
     rslite-ws "${CMD[@]}"

@@ -141,7 +141,7 @@ RUN chmod +x /usr/local/bin/proxy_wrapper.py \
 
 COPY claude-plugin /plugin
 ENV CLAUDE_PLUGIN_ROOT=/plugin
-RUN bash /docker-scripts/work-on-sqlite/create-venv-docker.sh
+RUN bash /docker-scripts/create-venv-docker.sh
 
 WORKDIR /workspace
 ENV USERNAME=$USERNAME
