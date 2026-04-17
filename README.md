@@ -17,6 +17,18 @@ docker build -t rslite-ws .
 
 `run-docker-workspace.sh` mounts the host repo at `/workspace` inside the container. You must export `PROJECT_ROOT` (absolute host path); the script exits with an error if it's unset.
 
+## Docker artifacts folder
+
+The `docker-files/` directory is automatically created when running the Docker image via `run-docker-workspace.sh`. This folder contains persistent artifacts from the container:
+
+- `.cargo/` — Rust package manager cache and registry data
+- `.credentials/` — Claude Code credentials, plugins, and authentication tokens
+- `.local/` — Local user data and configuration
+- `.claude.local.json` — Local Claude Code settings and session state
+- `venv/` — Python virtual environment with installed packages
+
+These artifacts persist between container runs, eliminating the need to re-download packages and re-authenticate on subsequent executions. This folder should typically be added to `.gitignore` as it contains machine-specific state and credentials.
+
 ```bash
 export PROJECT_ROOT=/abs/path/to/repo
 
@@ -53,7 +65,8 @@ Flow overview:
 
 1. **Fork `rslite`** under your own GitHub account — or use any other repo you own. The agent flow, label triggers, PR creation, and constraints-driven contract are all repo-agnostic; only `spec.k.json` and the `features_and_constraints` skill tie them to a project that opts into the constraint-driven loop. For a non-`rslite` repo, copy the workflow files (`.github/workflows/coding-agent.yml`, `issue-trigger.yml`, and optionally `check-constraints.yml`) into it and pass `-e runner_repo=<github-username>/<your-repo>` when running the ansible playbook.
 2. **Install a local self-hosted runner** against your fork — see [`ansible/README.md`](ansible/README.md) for the one-command ansible playbook. The runner registers with your GitHub login as a label.
-3. **Open an issue** in your fork describing the feature you want added. The agent follows the `features_and_constraints` skill: it patches `spec.k.json` with a new feature whose constraints check added feature; verifies each constraint first FAILS on the current code (Zero-State Rule); then implements code until every constraint PASSES via `check_spec_constraints.py`. Optionally prefix the body with YAML frontmatter:
+3. **Perform one-time Docker setup** before running workflows — manually execute `./run-docker-workspace.sh` locally with your `PROJECT_ROOT` set to initialize the Docker environment. This one-time setup ensures that when workflows execute on the self-hosted runner, the Docker container is already properly configured and ready to work.
+4. **Open an issue** in your fork describing the feature you want added. The agent follows the `features_and_constraints` skill: it patches `spec.k.json` with a new feature whose constraints check added feature; verifies each constraint first FAILS on the current code (Zero-State Rule); then implements code until every constraint PASSES via `check_spec_constraints.py`. Optionally prefix the body with YAML frontmatter:
    ```
    ---
    timeout: 20              # optional, minutes, default 10
@@ -64,9 +77,9 @@ Flow overview:
    See `claude-plugin/skills/features_and_constraints/SKILL.md` for the full contract (ConstraintBash schema, `$PROJECT_ROOT`, Exit-Code Rule, Zero-State Rule, unverified-constraint blocking).
 
    **Note:** feature constraints are executable checks, not docstrings — they are the only thing standing between the agent and a lazy implementation. Write them to probe real payloads, exit codes, and side effects so they cannot be satisfied by stubs, hardcoded fixtures, or `echo "success"`. A constraint that the agent can shortcut is worse than no constraint: it gives false confidence. Design each one to make cheating harder than actually implementing the feature.
-4. **Click the `agent-run` label** on the issue. `issue-trigger.yml` removes the label (so it's re-triggerable), verifies an online runner is labeled with your username, and dispatches `coding-agent.yml`.
-5. The runner checks out your fork in isolation, runs Claude against the issue in a docker container, and — on success — asks Claude to commit, runs constraint checks, pushes an `agent/<issue>-<slug>` branch, opens a PR `[AGENT] <issue title>`, and comments the constraints report on the issue.
-6. Re-applying the label on the same issue resumes the existing agent branch rather than starting over.
+5. **Click the `agent-run` label** on the issue. `issue-trigger.yml` removes the label (so it's re-triggerable), verifies an online runner is labeled with your username, and dispatches `coding-agent.yml`.
+6. The runner checks out your fork in isolation, runs Claude against the issue in a docker container, and — on success — asks Claude to commit, runs constraint checks, pushes an `agent/<issue>-<slug>` branch, opens a PR `[AGENT] <issue title>`, and comments the constraints report on the issue.
+7. Re-applying the label on the same issue resumes the existing agent branch rather than starting over.
 
 # Restricting claude code agent
 
