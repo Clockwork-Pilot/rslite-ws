@@ -32,7 +32,7 @@ CMD=(bash -c "source /docker-scripts/user-entrypoint.sh ; $ENTRYPOINT_CMD")
 # Example of file with rules specified in CLAUDE_FILE_RULES:
 # [
 #     { "deny-rule": ["$WORKSPACE_ROOT/**"], "reason": "readonly" },
-#     { "whitelist-rule": ["$WORKSPACE_ROOT/$PORTING_FILE"] }
+#     { "whitelist-rule": ["$WORKSPACE_ROOT/writable-file.txt"] }
 # ]
 
 docker run -it --rm \

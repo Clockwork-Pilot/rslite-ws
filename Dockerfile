@@ -144,6 +144,8 @@ ENV CLAUDE_PLUGIN_ROOT=/plugin
 RUN bash /docker-scripts/create-venv-docker.sh
 
 WORKDIR /workspace
+ENV WORKSPACE_ROOT=/workspace
+ENV CLAUDE_PROJECT_ROOT=/workspace
 ENV USERNAME=$USERNAME
 
 # Set CARGO_HOME env to a directory in the user's home to avoid permission issues when running as non-root.
