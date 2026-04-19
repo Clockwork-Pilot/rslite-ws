@@ -19,6 +19,20 @@
               -e runner_github_username=<github-username> \
               -e docker_files=/abs/path/to/docker-files
 
+    # python-yq (kislyuk/yq) is a runtime prerequisite for the coding-agent
+    # workflow — get-issue-details.sh uses it to parse issue YAML frontmatter.
+    # pip3 and jq (yq's runtime dep) must exist on the host.
+    #
+    # We use `command` with `creates:` instead of the `pip` module because if
+    # yq is already installed in any prefix that the active python3 sees,
+    # Ansible's pip module reports "already satisfied" and skips — leaving
+    # nothing at ~/.local/bin. --force-reinstall + --user guarantees the
+    # binary lands in the user-base, which is what the PATH override expects.
+    - name: Install python-yq into ~/.local/bin
+      command: python3 -m pip install --user --force-reinstall yq
+      args:
+        creates: "{{ ansible_facts['env']['HOME'] }}/.local/bin/yq"
+
     - name: Ensure runner install directory exists
       file:
         path: "{{ runner_install_dir }}"
@@ -111,6 +125,7 @@
           [Service]
           Environment="DOCKER_FILES={{ docker_files | mandatory }}"
           Environment="CLAUDE_EXTRA_DOCKER_ARGS={{ claude_extra_docker_args }}"
+          Environment="PATH={{ ansible_facts['env']['HOME'] }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         dest: "{{ ansible_facts['env']['HOME'] }}/.config/systemd/user/actions.runner.{{ runner_repo | replace('/', '.') }}.{{ runner_name }}.service.d/override.conf"
       notify: Reload and restart runner service
 

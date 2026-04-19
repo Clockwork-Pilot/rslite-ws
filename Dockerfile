@@ -143,6 +143,13 @@ COPY claude-plugin /plugin
 ENV CLAUDE_PLUGIN_ROOT=/plugin
 RUN bash /docker-scripts/create-venv-docker.sh
 
+RUN curl -sL https://github.com/nektos/act/releases/download/v0.2.87/act_Linux_x86_64.tar.gz \
+  | tar -xz -C /usr/local/bin act \
+  && mv /usr/local/bin/act /usr/local/bin/act-real
+
+RUN cp /docker-scripts/act-dispatch-workflow.sh /usr/local/bin/act \
+  && chmod +x /usr/local/bin/act
+
 WORKDIR /workspace
 ENV WORKSPACE_ROOT=/workspace
 ENV CLAUDE_PROJECT_ROOT=/workspace
