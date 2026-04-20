@@ -34,7 +34,7 @@ _HARDCODED_CONFIG = {
         "sqlite": {
             "paths": ["/workspace"],
             "git": {
-                "denied_subcommands": {"commit", "push", "rebase", "reset", "clean", "gc"},
+                "denied_subcommands": {"rebase", "reset", "clean", "gc", "restore"},
                 "denied_patterns":    [r"--force(?:-with-lease)?", r"-f\b"],
             },
             "gh": {
