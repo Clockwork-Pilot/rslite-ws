@@ -132,12 +132,13 @@ COPY docker-scripts /docker-scripts
 RUN cp /docker-scripts/docker-entrypoint.sh /usr/local/bin
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Install proxy wrapper — intercepts git, gh, cat, sed inside namespaces.
+# Install proxy wrapper — intercepts git, gh, chmod inside namespaces.
+# for proper harness abstraction, though it still can be called directly
 RUN cp /docker-scripts/proxy_wrapper.py /usr/local/bin/proxy_wrapper.py
 RUN chmod +x /usr/local/bin/proxy_wrapper.py \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/git \
     && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/gh \
-    && chmod 711 /usr/bin/git /usr/bin/gh
+    && ln -sf /usr/local/bin/proxy_wrapper.py /usr/local/bin/chmod
 
 COPY claude-plugin /plugin
 ENV CLAUDE_PLUGIN_ROOT=/plugin

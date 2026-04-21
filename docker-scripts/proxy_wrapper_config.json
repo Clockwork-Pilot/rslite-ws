@@ -9,6 +9,10 @@
             "gh": {
                 "denied_subcommands": ["repo", "release", "secret", "auth"],
                 "denied_patterns":    []
+            },
+            "chmod": {
+                "denied_subcommands": [],
+                "denied_patterns":    [".*"]
             }
         }
     }
